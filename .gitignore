@@ -15,3 +15,5 @@ venv/
 .DS_Store
 .pytest_cache/
 .tmp/
+# Local SQLite files created by development and migration tests.
+*.db
