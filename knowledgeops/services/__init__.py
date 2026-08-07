@@ -1,15 +1,15 @@
 """Public KnowledgeOps service exports."""
 
+from .indexing import DocumentIndexingService
 from .knowledge import (
     KnowledgeService,
     ResourceConflictError,
     ResourceNotFoundError,
 )
-from .indexing import DocumentIndexingService
 
 __all__ = [
+    "DocumentIndexingService",
     "KnowledgeService",
     "ResourceConflictError",
     "ResourceNotFoundError",
-    "DocumentIndexingService",
 ]

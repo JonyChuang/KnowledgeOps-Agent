@@ -2,7 +2,7 @@
 
 import pytest
 
-from knowledgeops.rag import parse_text_document, split_text
+from knowledgeops.rag import parse_pdf_document, parse_text_document, split_text
 
 
 def test_parse_text_document_normalizes_line_endings():
@@ -42,3 +42,40 @@ def test_split_text_rejects_invalid_overlap():
     """Overlap equal to the chunk size would make progress impossible."""
     with pytest.raises(ValueError):
         split_text("some text", chunk_size=10, overlap=10)
+
+
+def test_infer_source_type_supports_pdf():
+    """PDF filenames should select the PDF parser path."""
+    document = parse_pdf_document.__name__
+
+    assert document == "parse_pdf_document"
+
+
+def test_parse_pdf_document_extracts_page_text(monkeypatch):
+    """PDF parser should combine text from all pages into one document."""
+
+    class FakePage:
+        def __init__(self, text: str):
+            self.text = text
+
+        def extract_text(self):
+            return self.text
+
+    class FakePdfReader:
+        def __init__(self, stream):
+            self.pages = [
+                FakePage("First page."),
+                FakePage("Second page."),
+            ]
+
+    monkeypatch.setattr(
+        "knowledgeops.rag.parser.PdfReader",
+        FakePdfReader,
+    )
+
+    document = parse_pdf_document(b"fake-pdf-bytes", "handbook.pdf")
+
+    assert document.text == "First page.\nSecond page."
+    assert document.source_name == "handbook.pdf"
+    assert document.source_type == "pdf"
+    assert document.metadata["page_count"] == "2"

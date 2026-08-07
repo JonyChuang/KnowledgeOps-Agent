@@ -4,6 +4,8 @@ from .knowledge import (
     DocumentRead,
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
+    SearchRequest,
+    SearchResultRead,
     TextDocumentCreate,
 )
 
@@ -11,5 +13,7 @@ __all__ = [
     "DocumentRead",
     "KnowledgeBaseCreate",
     "KnowledgeBaseRead",
+    "SearchRequest",
+    "SearchResultRead",
     "TextDocumentCreate",
 ]

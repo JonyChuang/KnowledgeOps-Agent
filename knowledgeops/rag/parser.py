@@ -1,7 +1,11 @@
 """Document parsing primitives used before chunking and indexing."""
 
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
+
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 
 @dataclass(frozen=True)
@@ -21,6 +25,9 @@ def infer_source_type(source_name: str) -> str:
     # Markdown documents receive a specific type for future parser selection.
     if suffix in {".md", ".markdown"}:
         return "markdown"
+
+    if suffix == ".pdf":
+        return "pdf"
 
     # Plain text is the safe fallback for unknown text-like extensions.
     return "text"
@@ -50,5 +57,40 @@ def parse_text_document(
         metadata={
             "source_name": source_name,
             "source_type": resolved_type,
+        },
+    )
+
+
+def parse_pdf_document(content: bytes, source_name: str) -> ParsedDocument:
+    """Extract and normalize text from every page of a PDF document."""
+    if not isinstance(content, bytes):
+        raise TypeError("PDF content must be bytes.")
+
+    if not content:
+        raise ValueError("PDF content cannot be empty.")
+
+    try:
+        reader = PdfReader(BytesIO(content))
+        page_texts = [
+            page.extract_text() or ""
+            for page in reader.pages
+        ]
+    except PdfReadError as error:
+        raise ValueError("Invalid PDF document.") from error
+
+    normalized = "\n".join(page_texts)
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    if not normalized:
+        raise ValueError("PDF document does not contain extractable text.")
+
+    return ParsedDocument(
+        text=normalized,
+        source_name=source_name,
+        source_type="pdf",
+        metadata={
+            "source_name": source_name,
+            "source_type": "pdf",
+            "page_count": str(len(reader.pages)),
         },
     )

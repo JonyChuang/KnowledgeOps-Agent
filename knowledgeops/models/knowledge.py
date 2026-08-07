@@ -74,7 +74,7 @@ class Document(TimestampMixin, Base):
     knowledge_base: Mapped[KnowledgeBase] = relationship(back_populates="documents")
 
     # Deleting a document should also remove its derived chunks.
-    chunks: Mapped[list["DocumentChunk"]] = relationship(
+    chunks: Mapped[list[DocumentChunk]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
     )

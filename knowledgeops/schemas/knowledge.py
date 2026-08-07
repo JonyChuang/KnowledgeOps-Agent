@@ -51,3 +51,24 @@ class DocumentRead(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class SearchRequest(BaseModel):
+    """Validated semantic-search input for one knowledge base."""
+
+    query: str = Field(min_length=1, max_length=4_000)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class SearchResultRead(BaseModel):
+    """One citable document chunk returned by semantic search."""
+
+    vector_id: str
+    score: float
+    document_id: str
+    source_name: str
+    source_type: str
+    chunk_index: int
+    start_char: int
+    end_char: int
+    text: str

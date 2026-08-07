@@ -3,6 +3,9 @@
 import pytest
 
 from knowledgeops.rag import DeterministicEmbeddingProvider
+from types import SimpleNamespace
+
+from knowledgeops.rag import OpenAIEmbeddingProvider
 
 
 @pytest.mark.asyncio
@@ -33,3 +36,49 @@ def test_deterministic_provider_rejects_invalid_dimensions():
     """Unsupported dimensions must fail during provider configuration."""
     with pytest.raises(ValueError):
         DeterministicEmbeddingProvider(dimensions=33)
+
+
+class FakeEmbeddingsResource:
+    """Fake OpenAI endpoint used to test requests without network access."""
+
+    def __init__(self):
+        self.request: dict[str, object] | None = None
+
+    async def create(self, **kwargs):
+        self.request = kwargs
+
+        # Return reversed data intentionally to verify index-based ordering.
+        return SimpleNamespace(
+            data=[
+                SimpleNamespace(index=1, embedding=[0.4, 0.5, 0.6]),
+                SimpleNamespace(index=0, embedding=[0.1, 0.2, 0.3]),
+            ]
+        )
+
+
+class FakeOpenAIClient:
+    """Minimal client shape required by OpenAIEmbeddingProvider."""
+
+    def __init__(self):
+        self.embeddings = FakeEmbeddingsResource()
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_uses_batch_request_and_sorts_response():
+    """The provider should send one batch request and restore input ordering."""
+    client = FakeOpenAIClient()
+    provider = OpenAIEmbeddingProvider(
+        model_name="text-embedding-3-small",
+        dimensions=3,
+        client=client,
+    )
+
+    vectors = await provider.embed_texts(["first text", "second text"])
+
+    assert vectors == [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+    assert client.embeddings.request == {
+        "model": "text-embedding-3-small",
+        "input": ["first text", "second text"],
+        "dimensions": 3,
+        "encoding_format": "float",
+    }

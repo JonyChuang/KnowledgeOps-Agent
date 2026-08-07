@@ -1,0 +1,16 @@
+services:
+  qdrant:
+    # Pin the version so local development and later deployment use the same service.
+    image: qdrant/qdrant:v1.12.6
+
+    # The Python client and Qdrant dashboard both use the HTTP port.
+    ports:
+      - "6333:6333"
+
+    # Keep vectors after the container restarts.
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  # Docker manages this named volume; it is not committed to Git.
+  qdrant_storage:

@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin, new_id
+
+if TYPE_CHECKING:
+    # Imported only for static type checking to avoid a runtime circular import.
+    from .knowledge import Document
 
 
 class DocumentChunk(TimestampMixin, Base):
@@ -69,6 +75,6 @@ class DocumentChunk(TimestampMixin, Base):
         nullable=True,
     )
 
-    document: Mapped["Document"] = relationship(
+    document: Mapped[Document] = relationship(
         back_populates="chunks",
     )

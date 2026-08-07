@@ -6,7 +6,7 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import Settings, get_settings
-from ..db import Database, create_database
+from ..db import create_database
 from .routers import documents_router, knowledge_bases_router
 
 
@@ -33,6 +33,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.database = database
+    # The indexing endpoint reads Qdrant and Embedding configuration from here.
+    app.state.settings = settings
 
     app.add_middleware(
         CORSMiddleware,

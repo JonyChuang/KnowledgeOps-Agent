@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -19,7 +19,6 @@ def new_id() -> str:
 
 class Base(DeclarativeBase):
     """Base class whose metadata is used by Alembic migrations."""
-    pass
 
 
 class TimestampMixin:

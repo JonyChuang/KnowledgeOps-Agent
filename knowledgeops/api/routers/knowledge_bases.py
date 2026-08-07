@@ -1,12 +1,14 @@
 """REST endpoints for knowledge bases and text documents."""
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...schemas import (
     DocumentRead,
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
+    SearchRequest,
+    SearchResultRead,
     TextDocumentCreate,
 )
 from ...services import (
@@ -14,8 +16,8 @@ from ...services import (
     ResourceConflictError,
     ResourceNotFoundError,
 )
+from ...tasks import build_semantic_retriever, index_document
 from ..dependencies import get_session
-
 
 knowledge_bases_router = APIRouter(
     prefix="/knowledge-bases",
@@ -112,6 +114,39 @@ async def list_documents(
         ) from error
 
 
+@knowledge_bases_router.post(
+    "/{knowledge_base_id}/search",
+    response_model=list[SearchResultRead],
+)
+async def search_knowledge_base(
+    knowledge_base_id: str,
+    payload: SearchRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> list[SearchResultRead]:
+    """Search indexed chunks within one existing knowledge base."""
+    try:
+        # Validate the scope before creating authenticated external clients.
+        await KnowledgeService(session).list_documents(knowledge_base_id)
+
+        # The retriever owns an OpenAI and Qdrant client for this request.
+        retriever = build_semantic_retriever(request.app.state.settings)
+        try:
+            return await retriever.retrieve(
+                payload.query,
+                knowledge_base_id=knowledge_base_id,
+                limit=payload.limit,
+            )
+        finally:
+            # Release the Qdrant HTTP client after the online search request.
+            await retriever.vector_store.close()
+    except ResourceNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    
+
 @documents_router.get("/{document_id}", response_model=DocumentRead)
 async def get_document_status(
     document_id: str,
@@ -120,6 +155,35 @@ async def get_document_status(
     """Return one document's current indexing lifecycle state."""
     try:
         return await KnowledgeService(session).get_document(document_id)
+    except ResourceNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+
+
+@documents_router.post("/{document_id}/index", response_model=DocumentRead)
+async def trigger_document_index(
+    document_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    actor: str = Depends(get_actor),
+) -> DocumentRead:
+    """Trigger the complete indexing workflow for one uploaded document."""
+    try:
+        # Validate the document before creating external OpenAI and Qdrant clients.
+        await KnowledgeService(session).get_document(document_id)
+
+        # Do not keep the validation session open during external API requests.
+        await session.close()
+
+        # The task creates its own database session and releases its own Qdrant client.
+        return await index_document(
+            document_id,
+            database=request.app.state.database,
+            settings=request.app.state.settings,
+            actor=actor,
+        )
     except ResourceNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

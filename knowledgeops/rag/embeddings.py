@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
+
+from openai import AsyncOpenAI
 
 
 class EmbeddingProvider(Protocol):
@@ -44,4 +46,46 @@ class DeterministicEmbeddingProvider:
         return [
             (byte / 127.5) - 1.0
             for byte in digest[: self.dimensions]
+        ]
+
+
+class OpenAIEmbeddingProvider:
+    """OpenAI-backed semantic embedding provider for deployed environments."""
+
+    def __init__(
+        self,
+        *,
+        model_name: str = "text-embedding-3-small",
+        dimensions: int = 512,
+        client: Any | None = None,
+    ):
+        # The Embeddings API accepts dimensions up to 2048 for text-embedding-3.
+        if not 1 <= dimensions <= 2048:
+            raise ValueError("dimensions must be between 1 and 2048.")
+
+        self.model_name = model_name
+        self.dimensions = dimensions
+
+        # AsyncOpenAI reads OPENAI_API_KEY from the environment when used for real.
+        self._client = client or AsyncOpenAI()
+
+    async def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
+        """Create semantic vectors while preserving the original input order."""
+        if not texts:
+            return []
+
+        if any(not text.strip() for text in texts):
+            raise ValueError("Embedding text cannot be empty.")
+
+        response = await self._client.embeddings.create(
+            model=self.model_name,
+            input=list(texts),
+            dimensions=self.dimensions,
+            encoding_format="float",
+        )
+
+        # Use API indexes instead of trusting response order implicitly.
+        return [
+            list(item.embedding)
+            for item in sorted(response.data, key=lambda item: item.index)
         ]

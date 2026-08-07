@@ -347,9 +347,331 @@ uploaded Document
 - `python -m pytest -q`：`111 passed in 17.22s`。
 - 已验证同一文本的向量稳定、批量输入输出保持顺序，以及无效维度在构造 Provider 时被拒绝。
 
+### 第五小步：真实 OpenAI Embedding Provider
+
+| 文件或目录 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/rag/embeddings.py` | 新增 `OpenAIEmbeddingProvider`，使用异步 OpenAI SDK 批量调用 Embeddings API；默认模型为 `text-embedding-3-small`，默认向量维度为 512。 | 在部署环境中将 Chunk 文本转换为真正具备语义相似度含义的向量。 | 一次批量请求比逐 Chunk 请求更高效。固定 512 维可降低 Qdrant 存储和检索成本；模型名和维度都保留构造参数，未来可以在不重写索引业务流程的前提下调整。 |
+| `knowledgeops/rag/__init__.py` | 导出 `OpenAIEmbeddingProvider`。 | 让索引服务可以从 RAG 公共入口选择真实 Provider。 | Provider 的具体文件位置不应该耦合到调用方。 |
+| `tests/test_embeddings.py` | 使用 Fake OpenAI Client 模拟 API 响应，验证批量请求参数和依据 API `index` 恢复输入顺序。 | 不使用 API Key 和网络也能验证真实 Provider 的协议适配逻辑。 | API 响应不应被业务代码假定为天然有序。通过 `index` 排序后，第 N 个 Chunk 一定会得到第 N 个输入文本对应的向量，避免向量与原文错配这一高风险数据错误。 |
+
+### 第五小步的设计决策
+
+OpenAI Embeddings API 支持在一次请求中传入字符串数组，并返回带 `index` 字段的 Embedding 数据。`OpenAIEmbeddingProvider` 因此将 `Sequence[str]` 转成列表作为单次 `input`，并按响应的 `index` 排序后才返回向量列表。`text-embedding-3` 系列支持 `dimensions` 参数，项目选择 512 维作为当前成本和检索容量的折中，后续 Qdrant Collection 必须使用相同维度。
+
+真实运行时 `AsyncOpenAI()` 从环境变量读取 `OPENAI_API_KEY`。密钥不写入 Python 文件、测试、Git 仓库或本学习日志；本阶段的 Fake Client 测试也不会向 OpenAI 发出网络请求。
+
+### 第五小步验证结果
+
+- `python -m pytest tests/test_embeddings.py -q`：`4 passed in 1.99s`。
+- `python -m pytest -q`：`112 passed in 16.59s`。
+- 已验证 Provider 发出单次批量请求，携带模型、文本数组、512/指定维度和 `encoding_format="float"`；测试还故意让 Fake API 以反序返回数据，确认代码会依据 `index` 恢复正确顺序。
+
+### 第六小步：Qdrant 客户端配置
+
+| 文件或目录 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `pyproject.toml` | 增加 `qdrant-client>=1.12,<2.0` 依赖。 | 提供 Python 客户端，让应用可以创建 Collection、写入向量和执行相似度查询。 | 依赖声明必须进入项目元数据，其他开发者和部署环境才能安装相同版本范围；只写依赖而不调用客户端不算完成 Qdrant 集成，因此下一步会继续实现适配层。 |
+| `knowledgeops/config.py` | 增加 `qdrant_url`、`qdrant_collection`、`embedding_dimensions`。 | 集中配置 Qdrant 地址、Collection 名称和向量维度。 | Qdrant Collection 的向量维度必须与 Embedding Provider 输出一致。将维度放在配置层可避免代码中出现多个互相矛盾的数字，并支持 Docker 环境覆盖地址。 |
+| `tests/test_config.py` | 断言 Qdrant 默认地址、Collection 名称和 512 维配置。 | 固定基础设施配置契约。 | 配置错误通常要到服务连接外部依赖时才暴露，提前测试能在本地快速发现拼写或默认值回归。 |
+
+### 关于上一步 OpenAI 文档网站
+
+上一步查询的是 OpenAI 官方 Embeddings API 文档，地址为 `https://developers.openai.com/api/reference/resources/embeddings/methods/create`。它不是 KnowledgeOps Agent 的前端页面，也不是项目运行时必须打开的网站，而是开发时用来核对 API 合同的参考资料，主要确认：
+
+- 请求可以使用字符串数组批量生成多个向量。
+- 请求需要提供 `model`，`text-embedding-3` 系列支持 `dimensions`。
+- 响应中的每个向量带有 `index`，客户端应依据它恢复输入顺序。
+- 真实 SDK 从环境变量读取 `OPENAI_API_KEY`，密钥不应写进代码或日志。
+
+可以把它理解成“查阅第三方服务接口说明书”。项目部署后，应用直接调用 OpenAI API，不需要让用户访问这个文档网站。
+
+### 第六小步验证结果
+
+- `python -m pip install -e ".[dev]"` 后成功安装 `qdrant-client`。
+- `python -m pytest tests/test_config.py tests/test_embeddings.py -q`：`5 passed in 1.62s`。
+- `python -m pytest -q`：`112 passed in 18.61s`。
+- 本小步只完成 Qdrant 客户端依赖和配置，尚未启动 Qdrant 服务或写入向量；这两项将在下一小步通过本地 Qdrant 适配器和 Fake Client 测试完成。
+
+### 第七小步：Qdrant VectorStore 适配层
+
+| 文件或目录 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/rag/vector_store.py` | 新增 `VectorPoint` 和 `QdrantVectorStore`，负责创建/检查 Collection、校验向量维度、批量 upsert 向量、读取 payload 和关闭客户端。 | 为上层索引服务提供稳定的向量数据库边界。 | 索引服务不应该直接依赖 Qdrant SDK 的 `PointStruct` 和 Collection 细节。集中封装后，未来替换托管 Qdrant、调整写入策略或增加重试时，只修改适配层。 |
+| `knowledgeops/rag/__init__.py` | 导出 `VectorPoint` 和 `QdrantVectorStore`。 | 让索引服务从 RAG 公共入口使用向量存储能力。 | 保持与解析器、切分器、Embedding Provider 一致的模块导出规则。 |
+| `tests/test_vector_store.py` | 使用 `AsyncQdrantClient(location=":memory:")` 验证 Collection 创建、payload 读取和维度错误拒绝。 | 在没有 Docker 和真实 Qdrant 服务时验证适配层行为。 | 内存模式不依赖 `http://localhost:6333`，测试速度快且不会污染本地向量数据；真实服务连接会在 Docker 阶段再验收。 |
+
+### 第七小步的调用逻辑
+
+```text
+EmbeddingProvider
+  -> VectorPoint(vector_id, vector, payload)
+  -> QdrantVectorStore.upsert_points()
+  -> ensure_collection()
+  -> Qdrant Collection
+```
+
+每个 `VectorPoint` 的 `vector_id` 使用对应 `DocumentChunk.id`，payload 保存 `document_id`、知识库 ID、Chunk 顺序和来源文件名。用户问题检索到向量后，系统可以通过这些 payload 生成可解释的来源引用；关系数据库仍保存完整业务数据，Qdrant 不替代 PostgreSQL/SQLite。
+
+`ensure_collection()` 会在 Collection 不存在时创建它；如果 Collection 已存在但维度不是 512，则立即报错。这个检查很重要：Embedding 模型维度和 Qdrant Collection 维度不一致时，继续写入只会产生运行时错误或错误索引，应该在入口处快速失败。
+
+### 关于 `http://localhost:6333`
+
+这个地址是本机 Qdrant 服务的 HTTP 入口，不是前端页面。Qdrant 容器启动并映射端口后，可以通过 `http://localhost:6333/dashboard` 查看 Collection；Python 客户端则使用配置中的 `qdrant_url` 调用同一个服务。当前自动化测试使用 `:memory:` 模式，因此即使浏览器还打不开 6333，测试也可以通过。
+
+### 第七小步验证结果
+
+- `python -m pytest tests/test_vector_store.py -q`：`2 passed in 3.22s`。
+- `python -m pytest -q`：`114 passed in 18.19s`。
+- 已验证 Qdrant Collection 按 3 维测试向量创建、payload 可回读，以及错误维度在写入前被拒绝。
+- 尚未启动真实 Qdrant HTTP 服务；真实端口连通性留到 Docker Compose 阶段验证。
+
+### 第八小步：完整文档索引流程
+
+| 文件或目录 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/services/indexing.py` | 扩展 `DocumentIndexingService`，注入 Embedding Provider 和 VectorStore；新增 `index_document()`，完成 Chunk 读取、批量向量化、Qdrant 写入、Chunk 向量 ID 回写、审计和状态收敛。 | 将前面分散验证的组件连接成真实的 RAG 入库链路。 | 单独生成 Chunk 或单独写入 Qdrant 都不能代表文档可检索。只有向量写入成功后才写回 `vector_id` 并将文档标记为 `ready`，失败则保存 `failed` 和错误信息。 |
+| `tests/test_full_indexing.py` | 使用 16 维确定性 Embedding 和 Qdrant 内存模式，验证 900 字符文档生成两个向量、Chunk 回写 ID、payload 可读取以及文档变为 `ready`。 | 验证数据库、解析器、切分器、Embedding、Qdrant 和状态机的端到端协作。 | 测试不依赖真实 API Key 或外部服务，但仍覆盖真实 Provider/VectorStore 契约之间的连接方式。 |
+| `tests/test_full_indexing.py`（质量整理） | 使用正常的 `from sqlalchemy import select` 导入，删除动态 `__import__("sqlalchemy")` 写法。 | 让测试代码保持可读、可静态检查和易于维护。 | 动态导入虽然能运行，却隐藏了依赖关系，会让第一次阅读项目的开发者难以理解测试查询来源。 |
+| `knowledgeops/services/indexing.py`（质量整理） | 合并 RAG 导入并保留顶级类之间的规范空行。 | 保持统一的 Python 模块结构。 | 通过 Ruff 等静态检查可以在代码进入生产前发现格式和导入问题。 |
+
+### 第八小步的状态逻辑
+
+```text
+uploaded
+  -> indexing（已完成切分，等待向量化）
+  -> Qdrant upsert 成功
+  -> 回写 DocumentChunk.vector_id
+  -> ready（可检索）
+
+任意 Embedding/Qdrant 错误
+  -> failed + error_message
+```
+
+数据库事务无法回滚已经成功写入 Qdrant 的远程数据，因此当前实现使用稳定的 Chunk UUID 作为 Qdrant point ID。重复执行索引会覆盖同一个向量点，而不是产生新的孤立向量；这为后续重试任务提供了幂等基础。
+
+### 第八小步验证结果
+
+- `python -m pytest tests/test_full_indexing.py -q`：`1 passed in 3.26s`。
+- `python -m pytest -q`：`115 passed in 17.97s`。
+- 已验证文档从原文到 Qdrant payload 的完整调用链，以及 `ready` 状态只在向量写入后产生。
+
+### 第八小步补充：Ruff 代码质量检查
+
+为避免静态检查错误掩盖真实的业务问题，本小步补充了 Ruff 配置并对本阶段新增代码执行自动化质量整理。
+
+| 文件 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `pyproject.toml` | 在 `[tool.ruff]` 表中设置 `line-length = 130` 和 `target-version = "py310"`；在 `[tool.ruff.lint.flake8-bugbear]` 表中仅保留 `extend-immutable-calls = ["fastapi.Depends"]`。 | 为整个项目提供统一、可重复执行的静态检查规则。 | TOML 中一个表标题会持续作用到下一个表标题。若把 `line-length` 放到 `flake8-bugbear` 表中，Ruff 会因该插件不认识这个字段而无法启动。 |
+| `knowledgeops/` 与 `tests/test_full_indexing.py` | 使用 `ruff check --fix` 自动清理可确定修复的未使用导入、导入顺序、`__all__` 顺序和简单格式问题。 | 让新增 RAG 索引链路符合项目统一代码规范，降低后续维护成本。 | 自动修复只处理不改变业务语义的规范问题；之后仍需再次执行无 `--fix` 的检查和全量测试，确认没有引入行为回归。 |
+
+本次配置中的 `extend-immutable-calls` 是对 FastAPI 声明式写法的精确放行。路由函数参数中的 `Depends(...)` 是 FastAPI 官方常规用法，并非在函数定义时执行不可控的业务逻辑；因此只放行这个明确对象，而不是关闭整条 Ruff 规则。
+
+### Ruff 验证结果
+
+- `python -m ruff check knowledgeops tests/test_full_indexing.py --fix`：`Found 15 errors (15 fixed, 0 remaining).`
+- `python -m ruff check knowledgeops tests/test_full_indexing.py`：`All checks passed!`
+- `python -m pytest -q`：`115 passed in 19.42s`。
+- 结论：静态检查和全量回归测试同时通过；本次质量整理没有破坏原 CoreCoder 测试和已完成的 KnowledgeOps 索引功能。
+
+### 第九小步：索引任务入口
+
+| 文件或目录 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/config.py` | 新增 `embedding_model` 配置，默认使用 `text-embedding-3-small`。 | 让 Embedding 模型名称由统一配置管理，而不是散落在业务代码中。 | 切换模型时只修改环境变量即可；模型维度仍与 `embedding_dimensions` 一起校验。 |
+| `knowledgeops/tasks/__init__.py` | 导出 `index_document` 任务入口。 | 为 API、Worker 或后续 Celery 调用提供稳定导入路径。 | 调用方不需要了解任务文件内部的组织方式。 |
+| `knowledgeops/tasks/indexing.py` | 新增 `build_qdrant_vector_store()` 和 `index_document()`；从 `Settings` 创建真实 Qdrant 客户端，并为数据库会话、Embedding Provider 和 VectorStore 提供依赖注入。 | 把运行时依赖组装和索引业务流程连接起来。 | `DocumentIndexingService` 继续只负责业务规则；任务层负责资源创建和释放。测试可以注入内存 Qdrant 与确定性向量，生产环境则使用配置中的真实服务。 |
+| `tests/test_indexing_task.py` | 验证配置确实传入 Qdrant 适配器，并验证任务入口能够调用完整索引链路。 | 防止任务入口只停留在文件结构层面，确保它真的能驱动文档变为 `ready`。 | 通过依赖注入隔离外部服务，不需要真实 API Key 或 Qdrant HTTP 服务即可回归测试。 |
+
+任务入口当前还没有接入消息队列，这是刻意的边界：第九小步先建立可测试的运行时组合根，后续 API 触发和第六天 Celery Worker 都复用这个入口。
+
+### 第九小步验证结果
+
+- `python -m pytest tests/test_indexing_task.py -q`：`2 passed in 3.86s`。
+- `python -m ruff check knowledgeops tests/test_indexing_task.py`：`All checks passed!`。
+- `python -m pytest -q`：`117 passed in 17.69s`。
+- 结论：索引服务已经具备独立任务入口，且原 CoreCoder 测试和 KnowledgeOps 全量测试均保持通过。
+
 ### 下一小步
 
-根据 OpenAI 官方 SDK 文档实现真实 Embedding Provider，并保持 API Key 只从环境变量读取、不写入代码或学习日志。之后会接入 Qdrant 向量库，把 `DocumentChunk`、Embedding 和 `vector_id` 串成可检索索引。
+新增 `POST /api/v1/documents/{document_id}/index` 触发入口，先通过明确的服务调用验证 API 到索引任务的连接；随后再启动真实 Qdrant HTTP 服务，验证 `http://localhost:6333`、Collection 创建和持久化向量。
+
+### 第十小步：HTTP 索引触发入口
+
+| 文件 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/api/app.py` | 将 `Settings` 保存到 `app.state.settings`。 | 让路由在一次请求中读取已初始化的应用配置。 | 路由不应自行读取环境变量；将 `Settings` 作为应用运行时依赖保存，便于测试传入独立配置。 |
+| `knowledgeops/api/routers/knowledge_bases.py` | 新增 `POST /api/v1/documents/{document_id}/index`；先验证文档存在，再关闭仅用于验证的会话，最后调用 `tasks.index_document()`。 | 把 HTTP 请求连接到完整的文档索引任务。 | 索引会调用外部 Embedding 和 Qdrant 服务，不应在整个耗时过程占用路由的验证数据库会话；未知文档也应在创建外部客户端前返回 404。 |
+| `tests/test_knowledge_base_api.py` | 新增任务委托测试和未知文档 404 测试；以替身任务替代外部网络调用。 | 验证 API 参数、`X-Actor` 审计主体、应用状态依赖和路由错误处理。 | 测试要验证 API 与任务的边界，不应因真实 OpenAI Key 或 Qdrant 网络状态而不稳定。 |
+
+当前接口会等待索引任务完成并返回最终 `ready` 或 `failed` 状态，因此成功时使用 HTTP 200。第六天接入 Celery 后，同一个任务入口会移交给 Worker 异步执行，接口将调整为提交任务后返回 HTTP 202，而不重复实现索引业务逻辑。
+
+### 第十小步验证结果
+
+- `python -m pytest tests/test_knowledge_base_api.py -q`：新增接口测试通过。
+- `python -m ruff check knowledgeops tests/test_knowledge_base_api.py`：`All checks passed!`。
+- `python -m pytest -q`：`119 passed in 18.82s`。
+- 结论：上传文档后，调用 `/api/v1/documents/{document_id}/index` 已能进入索引任务；路由与任务职责分离，且未知文档会在外部调用之前被拒绝。
+
+### 下一小步
+
+由于本地 Docker Desktop 需要额外安装 WSL2 和较多磁盘空间，本项目开发环境改用 Qdrant Cloud Free Tier。Docker Compose 仍保留为第六天容器化交付的部署目标，不影响当前通过真实远程 Qdrant 验证索引链路。
+
+### 第十一小步：Qdrant Cloud 凭据注入与测试隔离
+
+| 文件 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/config.py` | 新增可选的 `qdrant_api_key: SecretStr | None`。 | 从环境读取 Qdrant Cloud 凭据，并在对象打印或日志输出时隐藏密钥内容。 | API Key 不能硬编码到源码，也不能随普通字符串出现在调试输出中。 |
+| `knowledgeops/tasks/indexing.py` | `build_qdrant_vector_store()` 从 Settings 提取 API Key，并将 URL 与 Key 传给 `AsyncQdrantClient`。 | 将生产索引任务连接到认证后的 Qdrant Cloud REST Endpoint。 | Endpoint 本身只能定位集群，认证 Key 才使客户端具备创建 Collection、写入和读取向量的权限。 |
+| `.env`（仅本机） | 配置 `QDRANT_URL`、`QDRANT_API_KEY`、`QDRANT_COLLECTION` 和 `EMBEDDING_DIMENSIONS`。 | 保存开发环境的真实云端连接信息。 | `.gitignore` 已忽略 `.env`；任何真实 Endpoint/Key 都不应写入源码、测试断言或提交记录。 |
+| `tests/test_config.py` | 使用 `_env_file=None`，并清理相关环境变量后验证默认值。 | 让默认配置测试只测试代码默认值。 | 开发者的真实 `.env` 不应改变单元测试预期。 |
+| `tests/test_knowledge_base_api.py` | API 测试 fixture 显式传入测试 Qdrant URL 与空 Key。 | 让 TestClient 始终使用独立的本地测试配置。 | `_env_file=None` 只能忽略 `.env` 文件，不能覆盖已经存在于 PowerShell 进程中的环境变量；显式传值的优先级最高。 |
+| `tests/test_indexing_task.py` | 扩展替身 Qdrant Client，断言 URL 和 API Key 都从 Settings 传入。 | 验证云端认证配置确实到达客户端构造边界。 | 测试不连接真实 Cloud，但能防止未来重构遗漏 `api_key` 参数。 |
+
+Qdrant Cloud 集群 `knowledgeops-agent-dev` 已创建并处于 `HEALTHY`。不在云端控制台手动创建 `knowledgeops_chunks`，由应用的 `ensure_collection()` 自动创建，确保 Collection 始终使用 512 维 Cosine 配置。
+
+### 第十一小步验证结果
+
+- `python -m pytest tests/test_knowledge_base_api.py -q`：`5 passed in 5.42s`。
+- `python -m pytest -q`：`119 passed in 19.54s`。
+- 结论：真实 Qdrant Cloud 凭据已与运行时代码连接，且本地自动化测试不会读取或依赖开发者的真实 Cloud 配置。
+
+### 下一小步
+
+新增一个不纳入 pytest/CI 的手动 Cloud 连通性脚本：使用真实 API Key 自动创建 `knowledgeops_chunks`、写入并读取一个临时向量，然后清理该临时向量。这样可验证网络、认证、Collection 维度和写入权限，而无需调用 OpenAI Embeddings API。
+
+### 第十二小步：真实 Qdrant Cloud 连通性验收
+
+| 文件或目录 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `scripts/verify_qdrant_cloud.py` | 新增手动运行脚本：读取 `.env`，用稳定 UUID 写入一个非零 512 维向量，读取 payload 后只删除该临时向量并关闭客户端。 | 在真实 Cloud 环境中验证 Qdrant 客户端适配器的认证、Collection 创建、写入、读取和资源释放。 | 外部网络和真实 Key 不应进入 pytest 或 CI；独立脚本可由开发者明确发起，并且不遗留会污染后续检索结果的测试向量。 |
+
+脚本使用现有 `build_qdrant_vector_store()`，因此它并未绕过应用代码。写入时会调用 `ensure_collection()`：若 `knowledgeops_chunks` 不存在，就按 512 维与 Cosine 距离创建；若已存在但维度不一致，则立即失败。读取成功后删除固定 UUID 的临时点，但保留 Collection，方便在 Qdrant Cloud 控制台检查集合。
+
+### 第十二小步验证结果
+
+- `python -m ruff check scripts/verify_qdrant_cloud.py`：`All checks passed!`。
+- `python scripts/verify_qdrant_cloud.py`：成功输出 `Qdrant Cloud connectivity verified.`、Collection `knowledgeops_chunks`、维度 `512`，并确认临时点已删除。
+- 结论：项目已形成 Qdrant Cloud 的真实调用链，不再仅依赖 Qdrant 内存模式测试。
+
+### 下一小步
+
+为 `QdrantVectorStore` 增加向量查询能力，并创建基础语义检索器：将用户问题 Embedding 后按 `knowledge_base_id` 过滤 Qdrant Collection，返回带分数、来源文件名和字符位置的检索片段。混合检索、RRF 和 Rerank 留到第四阶段实现。
+
+### 第十三小步：Qdrant 向量查询与知识库隔离
+
+| 文件 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/rag/vector_store.py` | 新增 `VectorSearchResult`，以及 `QdrantVectorStore.search()`：校验查询向量维度、限制 `limit`、按可选 `knowledge_base_id` 过滤，再调用 `query_points()`。 | 将 Qdrant 从“只能写入向量”的存储层变为“能为 RAG 返回候选片段”的召回层。 | 相同相似度的向量也不能跨知识库泄漏。将过滤条件传入 Qdrant，能在数据库端完成隔离，而不是先取回结果再由应用丢弃。 |
+| `knowledgeops/rag/__init__.py` | 导出 `VectorSearchResult`。 | 为之后的 Retriever 和 API 使用统一的 RAG 公共入口。 | 外部模块不必依赖 `vector_store.py` 的内部文件路径。 |
+| `tests/test_vector_store.py` | 新增内存 Qdrant 查询测试：两个知识库有相同向量时，只返回请求知识库的来源；补充查询向量维度保护。 | 验证相似度查询与租户/知识库隔离同时生效。 | 仅验证 upsert 成功无法证明 RAG 最重要的“召回正确性”和“数据范围正确性”。 |
+
+### 第十三小步验证结果
+
+- `python -m pytest tests/test_vector_store.py -q`：`3 passed in 3.65s`。
+- `python -m pytest -q`：`120 passed in 19.71s`。
+- 结论：项目现在能以 Qdrant Cosine 相似度查询向量，并在检索层按 `knowledge_base_id` 隔离结果。
+
+### 第三阶段完成度（阶段中期记录）
+
+在完成基础向量查询时，第三阶段约完成 **75%**。当时还缺少语义检索器、检索 HTTP API、真实端到端演示和 PDF 解析，这个中期记录保留用于说明开发过程。
+
+### 第十四小步：基础语义检索器
+
+| 文件 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/rag/retriever.py` | 新增 `RetrievedChunk` 引用数据结构与 `SemanticRetriever.retrieve()`；完成问题清洗、单问题 Embedding、按知识库查询与 Qdrant payload 校验。 | 为 Agent 和 HTTP API 提供“问题到可引用片段”的语义检索能力。 | Qdrant 的原始 payload 是无结构字典。检索器在边界处验证所有引用字段，将不完整索引数据尽早转化为明确错误，避免后续回答生成时无法追溯来源。 |
+| `knowledgeops/rag/__init__.py` | 导出 `RetrievedChunk` 与 `SemanticRetriever`。 | 保持 RAG 模块的公共导入入口一致。 | API、服务和未来的 LangGraph 节点不应直接依赖模块内部目录结构。 |
+| `tests/test_retriever.py` | 用确定性 Embedding 与内存 Qdrant 验证：同一知识库的问题能返回完整引用字段；空问题会在调用 Embedding 之前失败。 | 覆盖语义检索器的主要成功和输入校验路径。 | 自动化测试不调用 OpenAI 或 Qdrant Cloud，但真实调用顺序与生产实现保持一致。 |
+
+实现过程中曾将测试代码误放到 `knowledgeops/rag/retriever.py`，导致该模块在 `knowledgeops.rag` 初始化时再次 `from knowledgeops.rag import ...`，形成循环导入。修复原则是：生产模块只使用同目录相对导入（如 `from .vector_store import ...`）；测试只能放在 `tests/test_retriever.py`，从包的公共入口导入被测对象。这也是 Python 包初始化顺序的重要实践。
+
+### 第十四小步验证结果
+
+- `python -m pytest tests/test_retriever.py -q`：`2 passed in 4.94s`。
+- `python -m pytest -q`：`122 passed in 25.43s`。
+- 结论：用户问题已可转换为查询向量，并返回包含来源文件、Chunk 序号、字符范围和相似度分数的结构化检索结果。
+
+### 下一小步
+
+创建检索用例入口与 `POST /api/v1/knowledge-bases/{knowledge_base_id}/search`：先验证知识库存在，再在同一知识库范围内执行语义检索，最后返回经过 Pydantic 校验的引用结果。该请求在线同步执行，不进入 Celery 队列。
+
+### 第十五小步：语义检索 HTTP API
+
+| 文件 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `knowledgeops/tasks/indexing.py` | 新增 `build_semantic_retriever()`，统一创建 OpenAI Embedding Provider、Qdrant VectorStore 和 SemanticRetriever。 | 为在线检索提供生产运行时依赖组装入口。 | API 路由只负责请求校验和生命周期管理，不能复制 Embedding/Qdrant 初始化细节。 |
+| `knowledgeops/tasks/__init__.py` | 导出检索器工厂。 | 让路由通过稳定的公共入口使用检索能力。 | 避免业务层依赖任务模块内部实现细节。 |
+| `knowledgeops/schemas/knowledge.py` | 新增 `SearchRequest` 和 `SearchResultRead`。 | 定义搜索请求参数和带引用的响应结构。 | Pydantic 可以在 API 边界限制问题长度、结果数量，并保证返回字段稳定。 |
+| `knowledgeops/api/routers/knowledge_bases.py` | 新增 `POST /api/v1/knowledge-bases/{knowledge_base_id}/search`；校验知识库存在，调用检索器，关闭 Qdrant 客户端并返回结果。 | 将语义检索暴露给前端和未来的 LangGraph Agent。 | 检索必须限定在指定知识库范围内；外部客户端也必须在请求结束时释放。 |
+| `tests/test_knowledge_base_api.py` | 新增成功搜索和未知知识库 404 测试，使用替身检索器隔离真实网络。 | 验证 API 请求/响应契约、知识库范围和资源释放。 | 单元测试不能依赖 Cloud 状态，但仍要验证路由确实调用了 Retriever。 |
+
+本接口当前同步等待检索结果，因为一次 Qdrant 查询和 Embedding 请求属于在线低延迟操作；只有文档解析、批量 Embedding 和索引等耗时任务才进入后续 Celery Worker。
+
+### 第十五小步验证结果
+
+- `python -m pytest tests/test_knowledge_base_api.py -q`：`7 passed in 7.22s`。
+- `python -m pytest -q`：`124 passed in 21.37s`。
+- 结论：搜索请求已经能够返回结构化引用字段，并在知识库不存在时返回 404；真实外部调用被测试替身隔离。
+
+### 下一小步
+
+执行一次真实端到端演示：创建演示知识库和文本文档，调用索引任务使用 OpenAI Embedding 与 Qdrant Cloud，再调用语义搜索 API 检查返回的来源引用。演示数据必须使用公开、虚构内容，不得上传真实业务文档。
+
+### 第十六小步：PDF 文本解析
+
+| 文件 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `pyproject.toml` | 增加 `pypdf` 依赖。 | 为 PDF 文件提供页面级文本提取能力。 | PDF 不能直接作为普通字符串切分，必须先转换为统一文本；解析库只负责提取，不和 Chunk/Embedding/Qdrant 耦合。 |
+| `knowledgeops/rag/parser.py` | `infer_source_type()` 支持 `.pdf`；新增 `parse_pdf_document()`，读取每页文字、规范化换行并保留页数元数据。 | 将 PDF 接入已有的 Chunk 和索引链路。 | 统一的 `ParsedDocument` 输出使后续切分、向量化和引用逻辑无需区分 PDF 与 Markdown。 |
+| `knowledgeops/rag/__init__.py` | 导出 `parse_pdf_document`。 | 让上传层和测试通过 RAG 公共入口使用 PDF 解析。 | 避免调用方依赖解析器内部文件路径。 |
+| `tests/test_rag.py` | 增加 PDF 类型和多页文本合并测试，使用假的 PdfReader 隔离真实文件。 | 验证 PDF 解析逻辑而不上传任何真实文档。 | 测试只关注页面遍历、文本合并和页数元数据，避免测试资源和外部文件不可控。 |
+
+### 第十六小步验证结果
+
+- `python -m pytest tests/test_rag.py -q`：`6 passed in 4.29s`。
+- `python -m pytest -q`：`126 passed in 18.79s`。
+- 结论：文本、Markdown 和 PDF 现在都可以进入同一套规范化、切分、Embedding 和向量索引流程。
+
+### 第十七小步：真实端到端 RAG 演示
+
+| 文件或目录 | 修改内容 | 在项目中的作用 | 为什么需要这样修改 |
+| --- | --- | --- | --- |
+| `scripts/demo_knowledgeops_rag.py` | 使用临时 SQLite 创建演示知识库和公开虚构 Markdown 文档，调用真实 Embedding Provider 完成索引，再通过 `SemanticRetriever` 查询并打印来源引用。 | 把数据库、文档解析、Chunk、Embedding、Qdrant Cloud 和语义检索串成一条可现场演示的完整链路。 | 单元测试只能证明各模块在隔离环境中正确；真实演示还要验证 API 代理、向量维度、Cloud 网络、认证和实际数据流能否一起工作。使用虚构文档可以避免上传真实业务数据。 |
+| `docs/knowledgeops-learning-log.md` | 记录真实演示的命令、输出和最终结论。 | 为其他开发者提供可复现的验收证据，也明确区分自动化测试和外部服务验收。 | 外部服务可能受网络、模型供应商和配置影响，必须把实际结果写入日志，避免把“代码测试通过”误认为“生产链路已验证”。 |
+
+### 第十七小步验证结果
+
+执行命令：
+
+```powershell
+python scripts/demo_knowledgeops_rag.py
+```
+
+关键输出：
+
+```text
+Indexed status: ready
+Chunk count: 1
+Search results:
+- score=0.4821 source=aurora-api-handbook.md chunk=0
+```
+
+结论：公开虚构 Markdown 文档已经成功完成索引，向量写入 Qdrant Cloud，查询问题完成向量化，并返回了带来源文件名、Chunk 序号和相似度分数的检索结果。第三阶段的最终验收通过。
+
+### 第三阶段完成度（最终）
+
+当前第三阶段完成度为 **100%**。已完成：
+
+1. 文本/Markdown/PDF 解析与 Chunk 切分。
+2. Chunk 持久化、Embedding 抽象和 Qdrant Cloud 索引。
+3. 文档索引任务与文档状态流转。
+4. `SemanticRetriever` 和检索 HTTP API。
+5. 真实 Qdrant Cloud 连通性验证和真实端到端 RAG 演示。
+
+### 下一阶段
+
+进入第四阶段：实现 Elasticsearch BM25 关键词召回、Qdrant 向量召回、RRF 混合排序、Rerank 和 Recall@5/MRR/检索耗时评测。
 
 ---
 

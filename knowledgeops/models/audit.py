@@ -3,11 +3,9 @@
 from typing import Any
 
 from sqlalchemy import JSON, String
-
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin, new_id
-
 
 
 class AuditEvent(TimestampMixin, Base):

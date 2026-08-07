@@ -2,8 +2,8 @@
 
 from .audit import AuditEvent
 from .base import Base
-from .knowledge import Document, DocumentStatus, KnowledgeBase
 from .chunk import DocumentChunk
+from .knowledge import Document, DocumentStatus, KnowledgeBase
 
 __all__ = [
     "AuditEvent",

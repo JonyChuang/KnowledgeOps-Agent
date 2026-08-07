@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +17,17 @@ class Settings(BaseSettings):
     # Local development creates tables automatically.
     # Production containers will run Alembic migrations instead.
     auto_create_schema: bool = False
+
+    # Qdrant stores vectors while PostgreSQL or SQLite stores business records.
+    qdrant_url: str = "http://localhost:6333"
+
+    # SecretStr prevents the API Key from appearing in Settings logs or repr output.
+    qdrant_api_key: SecretStr | None = None
+
+    qdrant_collection: str = "knowledgeops_chunks"
+    embedding_dimensions: int = 512
+    # Keep the embedding model configurable across local and deployed environments.
+    embedding_model: str = "text-embedding-3-small"
 
     @property
     def cors_origin_list(self) -> list[str]:
