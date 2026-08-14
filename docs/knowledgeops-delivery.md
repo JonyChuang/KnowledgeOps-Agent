@@ -1,7 +1,7 @@
 # KnowledgeOps Agent 最终交付说明
 
 **交付日期：** 2026-08-11  
-**项目路径：** `D:\Agent\CoreCoder`  
+**项目路径：** 项目根目录
 **交付类型：** 本地 Docker Compose 演示环境与完整源代码
 
 ## 1. 交付范围
@@ -34,7 +34,7 @@ containers: api、worker、frontend、postgres、redis、qdrant、elasticsearch�
 首次启动或后端镜像更新后：
 
 ```powershell
-Set-Location D:\Agent\CoreCoder
+Set-Location <项目根目录>
 conda activate myagent
 docker build --tag knowledgeops-agent:local .
 docker compose up -d

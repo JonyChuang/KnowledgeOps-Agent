@@ -224,10 +224,14 @@ class TicketService:
         *,
         operator: str,
     ) -> Ticket:
-        """Assign an active ticket without skipping its current lifecycle state."""
+        """Assign an open ticket or hand off active work to another operator."""
         ticket = await self.get_service_desk_ticket_detail(ticket_id)
-        if ticket.status in {TicketStatus.RESOLVED, TicketStatus.CLOSED}:
-            raise ValueError("Resolved or closed tickets cannot be reassigned.")
+        if ticket.status not in {TicketStatus.OPEN, TicketStatus.IN_PROGRESS}:
+            raise ValueError("Only open or in-progress tickets can be assigned.")
+        if ticket.status == TicketStatus.IN_PROGRESS and ticket.assignee != operator:
+            raise ValueError("Only the assigned operator can transfer an in-progress ticket.")
+        if ticket.status == TicketStatus.OPEN and ticket.assignee and ticket.assignee != operator:
+            raise ValueError("Only the assigned operator can change an open ticket assignment.")
 
         previous_assignee = ticket.assignee
         normalized_assignee = assignee.strip()

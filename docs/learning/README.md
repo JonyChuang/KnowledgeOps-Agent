@@ -13,7 +13,7 @@
 | 5 | [工单协同与服务台](phase-05-ticket-collaboration.md) | 工单状态机、活动时间线、SLA 和角色边界 | 两个账号完成一次处理闭环 |
 | 6 | [员工工作台与个人工作项](phase-06-workbench.md) | 工作台聚合、全局搜索、通知、收藏和反馈 | 验证导航与个人数据展示 |
 | 7 | [登录、权限与数据隔离](phase-07-authentication.md) | Cookie 会话、角色授权、服务端数据范围 | 注册多个账号并切换角色 |
-| 8 | [前端模块化与容器化排错](phase-08-frontend-and-delivery.md) | 静态片段加载、镜像更新、缓存和排错 | 重建前端并验证页面交互 |
+| 8 | [React + TypeScript 前端迁移与交付](phase-08-frontend-and-delivery.md) | Vite、组件拆分、类型化接口、状态管理、镜像更新和排错 | 生产构建并验证主要业务闭环 |
 
 ## 阅读与动手方式
 

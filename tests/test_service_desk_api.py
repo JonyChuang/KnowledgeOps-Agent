@@ -134,3 +134,26 @@ def test_requester_cannot_use_service_desk_transition_endpoint(client: TestClien
     )
     assert service_desk_detail.status_code == 200
     assert service_desk_detail.json()["requester"] == "alice"
+
+
+def test_service_desk_cannot_transfer_a_ticket_waiting_for_requester(client: TestClient) -> None:
+    ticket_id = create_ticket(client, "alice", "无法访问财务共享文件夹")
+    operator = service_desk_headers("first-line")
+
+    accepted = client.post(f"/api/v1/service-desk/tickets/{ticket_id}/accept", headers=operator)
+    assert accepted.status_code == 200
+
+    waiting = client.post(
+        f"/api/v1/service-desk/tickets/{ticket_id}/request-information",
+        headers=operator,
+        json={"reason": "请补充访问报错截图。"},
+    )
+    assert waiting.status_code == 200
+    assert waiting.json()["status"] == "awaiting_requester"
+
+    transfer = client.post(
+        f"/api/v1/service-desk/tickets/{ticket_id}/assign",
+        headers=operator,
+        json={"assignee": "network-team"},
+    )
+    assert transfer.status_code == 409

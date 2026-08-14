@@ -2,7 +2,7 @@
 
 > 企业知识库与工单协同 Agent。把团队资料变成可检索知识，让员工在同一平台完成问答、建单、跟进与服务台协作。
 
-KnowledgeOps Agent 是构建在 CoreCoder 仓库中的独立业务模块。它面向本地演示、学习和作品集展示，提供真实的登录会话、知识库索引、混合检索、GraphRAG、LLM Function Calling Agent 和工单协同闭环。
+KnowledgeOps Agent 是独立的企业知识库与工单协同项目，面向本地演示、学习和作品集展示，提供真实的登录会话、知识库索引、混合检索、GraphRAG、LLM Function Calling Agent 和工单协同闭环。
 
 ---
 
@@ -44,7 +44,7 @@ KnowledgeOps Agent 是构建在 CoreCoder 仓库中的独立业务模块。它�
 
 | 层级 | 采用技术 | 在项目中的职责 |
 | --- | --- | --- |
-| 前端 | 原生 HTML / CSS / JavaScript + Nginx | 静态管理台、页面片段加载和 `/api` 反向代理 |
+| 前端 | React 18 + TypeScript + Vite + Zustand + Nginx | 组件化管理台、类型化 API 调用、前端状态与 `/api` 反向代理 |
 | API | FastAPI + Pydantic | REST 接口、身份校验、参数验证和依赖注入 |
 | 业务数据 | PostgreSQL 16 + SQLAlchemy Async + Alembic | 用户、会话、知识库、文档、工单、通知和审计数据 |
 | 异步任务 | Celery + Redis | 文档索引任务投递、执行与结果记录 |
@@ -82,6 +82,7 @@ flowchart LR
 | --- | --- | --- |
 | Docker Desktop | 当前稳定版，启用 WSL2 | 启动全部服务与存储 |
 | Python | 3.11 | 本地运行测试或后端开发 |
+| Node.js | 20 或更高版本（仅本地前端开发需要） | 运行 Vite、类型检查与前端生产构建 |
 | 可用的 Chat 模型 | 支持 OpenAI Chat Completions；推荐支持 Function Calling | Agent 对话与工具选择 |
 | 可用的 Embedding 模型 | OpenAI 兼容接口 | 文档向量化与语义检索 |
 
@@ -91,7 +92,7 @@ Docker Compose 会使用端口 `8080`、`7474` 和 `7687`；容器网络内部�
 
 ## 快速开始
 
-以下命令以 Windows PowerShell 为例，在项目根目录 `D:\Agent\CoreCoder` 执行。
+以下命令以 Windows PowerShell 为例，在项目根目录执行。
 
 ### 第 1 步：准备环境变量
 
@@ -230,7 +231,7 @@ docker compose ps
 ## 目录结构
 
 ```text
-CoreCoder/
+KnowledgeOps-Agent/
 ├── knowledgeops/
 │   ├── api/                 # FastAPI 应用、路由与依赖注入
 │   ├── agents/              # LangGraph 工作流、Function Calling 和工具
@@ -242,7 +243,7 @@ CoreCoder/
 │   ├── graphrag/            # Neo4j 图存储、实体抽取与图谱检索
 │   ├── tasks/               # Celery 应用、索引与 Agent 运行时工厂
 │   ├── evaluation/          # Recall@k、MRR 和延迟评估
-│   └── frontend/            # Nginx 静态前端与页面片段
+│   └── frontend/            # React + TypeScript 源码与前端 Dockerfile
 ├── migrations/              # Alembic 数据库迁移
 ├── nginx/                   # Nginx 反向代理配置
 ├── tests/                   # 单元、接口、工作流和集成测试
@@ -277,14 +278,19 @@ docker compose up -d --force-recreate migrate api worker
 
 ### 修改前端
 
-前端镜像使用 `knowledgeops/frontend/Dockerfile` 将静态文件复制到 Nginx。修改 HTML、CSS 或 JavaScript 后需要：
+前端源码位于 `knowledgeops/frontend/src/`。Dockerfile 会先使用 Node 构建 Vite 产物，再仅将 `dist/` 复制到 Nginx 最终镜像。修改 React、TypeScript 或样式后，需要：
 
 ```powershell
+Set-Location knowledgeops/frontend
+npm ci
+npm run check
+npm run build
+Set-Location ../..
 docker compose build frontend
 docker compose up -d --force-recreate --no-deps frontend
 ```
 
-随后在浏览器按 `Ctrl + F5`。常规构建会复用缓存；不要为了普通代码修改使用 `--no-cache`。如确认不存在需要保留的旧镜像，可单独执行 `docker image prune -f` 清理悬空镜像，不要执行带 `--volumes` 的全局清理命令。
+`npm ci` 只在本地前端开发或验证时需要；只运行 Docker Compose 时，Node 构建会在 Docker 的构建阶段完成。随后在浏览器按 `Ctrl + F5`。常规构建会复用缓存；不要为了普通代码修改使用 `--no-cache`。如确认不存在需要保留的旧镜像，可单独执行 `docker image prune -f` 清理悬空镜像，不要执行带 `--volumes` 的全局清理命令。
 
 ## 常见问题
 
@@ -333,4 +339,4 @@ docker compose up -d --force-recreate --no-deps frontend
 
 ## 许可证与归属
 
-本项目保留上游 [CoreCoder](https://github.com/he-yufeng/CoreCoder) 的 MIT License 与归属信息。KnowledgeOps 业务代码位于 `knowledgeops/`，与上游 CLI 代码保持职责边界。
+本项目遵循 [MIT License](./LICENSE)。KnowledgeOps 业务代码位于 `knowledgeops/`，部署、迁移、测试和学习文档位于项目根目录的对应目录中。
