@@ -1,11 +1,10 @@
 """Tests for the local deterministic embedding provider."""
 
-import pytest
-
-from knowledgeops.rag import DeterministicEmbeddingProvider
 from types import SimpleNamespace
 
-from knowledgeops.rag import OpenAIEmbeddingProvider
+import pytest
+
+from knowledgeops.rag import DeterministicEmbeddingProvider, OpenAIEmbeddingProvider
 
 
 @pytest.mark.asyncio

@@ -6,11 +6,14 @@ from qdrant_client import AsyncQdrantClient
 from knowledgeops.config import Settings
 from knowledgeops.db import Database
 from knowledgeops.models import DocumentStatus
-from knowledgeops.rag import DeterministicEmbeddingProvider, QdrantVectorStore
+from knowledgeops.rag import DeterministicEmbeddingProvider, FakeKeywordStore, QdrantVectorStore, TokenOverlapReranker
 from knowledgeops.schemas import KnowledgeBaseCreate, TextDocumentCreate
 from knowledgeops.services import KnowledgeService
-from knowledgeops.tasks import index_document
-from knowledgeops.tasks.indexing import build_qdrant_vector_store
+from knowledgeops.tasks import build_hybrid_retriever, index_document
+from knowledgeops.tasks.indexing import (
+    build_elasticsearch_keyword_store,
+    build_qdrant_vector_store,
+)
 
 
 def test_build_qdrant_vector_store_reads_settings(monkeypatch):
@@ -61,6 +64,7 @@ async def test_index_document_task_accepts_test_dependencies(tmp_path):
         collection_name="indexing_task_test",
         dimensions=16,
     )
+    keyword_store = FakeKeywordStore()
     settings = Settings(
         qdrant_collection="indexing_task_test",
         embedding_dimensions=16,
@@ -89,10 +93,63 @@ async def test_index_document_task_accepts_test_dependencies(tmp_path):
             actor="test-worker",
             embedding_provider=DeterministicEmbeddingProvider(dimensions=16),
             vector_store=vector_store,
+            keyword_store=keyword_store,
         )
 
         assert indexed_document.status is DocumentStatus.READY
         assert indexed_document.chunk_count == 2
+        assert len(keyword_store.results) == 2
     finally:
         await vector_store.close()
         await database.dispose()
+
+
+def test_build_elasticsearch_keyword_store_reads_settings():
+    captured: dict[str, object] = {}
+
+    class FakeElasticsearchClient:
+        def __init__(
+            self,
+            *,
+            hosts: list[str],
+            api_key: str | None = None,
+        ) -> None:
+            captured["hosts"] = hosts
+            captured["api_key"] = api_key
+
+
+    settings = Settings(
+        elasticsearch_url="http://elasticsearch.example:9200",
+        elasticsearch_index="task_test_chunks",
+        elasticsearch_api_key="unit-test-elasticsearch-key",
+    )
+
+    keyword_store = build_elasticsearch_keyword_store(
+        settings,
+        client_factory=FakeElasticsearchClient,
+    )
+
+    assert captured["hosts"] == ["http://elasticsearch.example:9200"]
+    assert captured["api_key"] == "unit-test-elasticsearch-key"
+    assert keyword_store.index_name == "task_test_chunks"
+
+def test_build_hybrid_retriever_composes_runtime_adapters(monkeypatch):
+    """The hybrid factory should compose semantic and keyword adapters."""
+    settings = Settings()
+    semantic_retriever = object()
+    keyword_store = object()
+
+    monkeypatch.setattr(
+        "knowledgeops.tasks.indexing.build_semantic_retriever",
+        lambda received_settings: semantic_retriever,
+    )
+    monkeypatch.setattr(
+        "knowledgeops.tasks.indexing.build_elasticsearch_keyword_store",
+        lambda received_settings: keyword_store,
+    )
+
+    retriever = build_hybrid_retriever(settings)
+
+    assert retriever.semantic_retriever is semantic_retriever
+    assert retriever.keyword_store is keyword_store
+    assert isinstance(retriever.reranker, TokenOverlapReranker)

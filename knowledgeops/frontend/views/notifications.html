@@ -1,0 +1,34 @@
+<section id="notifications-view" class="view">
+  <div class="notifications-workspace">
+    <header class="tool-page-header notifications-header">
+      <div>
+        <p class="tool-eyebrow">Notification Center</p>
+        <h1>通知中心</h1>
+        <p>查看与你有关的工单协作和资料索引动态，处理后可直接进入对应事项。</p>
+      </div>
+    </header>
+    <section class="notifications-toolbar" aria-label="通知筛选">
+      <div class="notification-filter-tabs" role="tablist">
+        <button type="button" class="notification-filter-tab is-active" data-notification-filter="all">全部通知</button>
+        <button type="button" class="notification-filter-tab" data-notification-filter="unread">未读</button>
+      </div>
+      <button id="mark-all-notifications-read" type="button" class="secondary-action">全部标为已读</button>
+    </section>
+    <p id="notifications-message" class="form-message" role="status"></p>
+    <section class="notifications-panel" aria-live="polite">
+      <div class="notifications-panel-heading">
+        <div>
+          <h2>消息列表</h2>
+          <p id="notifications-result-summary">正在加载你的通知...</p>
+        </div>
+        <span id="notifications-result-count" class="activity-count">0</span>
+      </div>
+      <div id="notifications-list" class="notifications-list"></div>
+      <div class="notifications-pagination">
+        <button id="notifications-previous-page" type="button" class="secondary-action">上一页</button>
+        <span id="notifications-page-summary">第 1 页</span>
+        <button id="notifications-next-page" type="button" class="secondary-action">下一页</button>
+      </div>
+    </section>
+  </div>
+</section>

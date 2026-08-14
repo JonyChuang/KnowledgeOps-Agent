@@ -1,0 +1,52 @@
+<section id="agent-view" class="view">
+  <div class="agent-workspace">
+    <aside class="conversation-sidebar" aria-label="对话列表">
+      <button id="new-agent-chat" class="new-chat-button" type="button">新对话</button>
+      <div class="conversation-list-header">
+        <span>最近对话</span>
+        <span id="conversation-count" class="conversation-count">0</span>
+      </div>
+      <div id="conversation-list" class="conversation-list">
+        <p class="conversation-empty">还没有对话</p>
+      </div>
+    </aside>
+    <div class="conversation-main">
+      <header class="conversation-header">
+        <div>
+          <p class="conversation-eyebrow">KnowledgeOps Agent</p>
+          <h1 id="conversation-title">开始一段对话</h1>
+        </div>
+        <span class="api-status">API 检查中</span>
+      </header>
+      <div id="agent-result" class="agent-messages" aria-live="polite">
+        <div class="agent-welcome">
+          <div class="agent-welcome-mark" aria-hidden="true">K</div>
+          <h2>有什么可以帮你？</h2>
+          <p>可以查询知识库、查看工单，或协助创建需要确认的工单。</p>
+          <div class="suggestion-list">
+            <button type="button" data-agent-suggestion="帮我总结知识库中的工程规范">总结工程规范</button>
+            <button type="button" data-agent-suggestion="查看当前未关闭的工单">查看未关闭工单</button>
+            <button type="button" data-agent-suggestion="帮我创建一个 VPN 无法连接的工单">创建 VPN 工单</button>
+          </div>
+        </div>
+      </div>
+      <form id="agent-form" class="agent-composer">
+        <div class="agent-context-row">
+          <label class="agent-context-field" for="agent-knowledge-base">
+            <span>知识库</span>
+            <select id="agent-knowledge-base" aria-label="选择知识库"></select>
+          </label>
+          <span id="agent-actor" class="agent-actor-field" aria-label="当前登录用户"></span>
+        </div>
+        <label class="agent-message-field" for="agent-message">
+          <span class="sr-only">发送给 Agent 的消息</span>
+          <textarea id="agent-message" rows="3" maxlength="4000" placeholder="输入问题，或让 Agent 帮你查询、创建工单..."></textarea>
+        </label>
+        <div class="agent-composer-footer">
+          <span>AI 生成的内容可能不准确，请注意甄别</span>
+          <button type="submit" class="send-agent-button">发送</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>

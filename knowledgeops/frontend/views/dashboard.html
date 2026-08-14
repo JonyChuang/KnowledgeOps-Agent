@@ -1,0 +1,102 @@
+<section id="dashboard-view" class="view is-active">
+  <div class="dashboard-workspace">
+    <p id="dashboard-message" class="form-message" role="status"></p>
+    <section class="dashboard-overview" aria-label="工作概览">
+      <article class="dashboard-highlight">
+        <div>
+          <p>
+            你好，
+            <strong id="dashboard-actor-greeting">加载中</strong>
+          </p>
+          <h2 id="dashboard-greeting">今天先从处理中的事项开始。</h2>
+          <span id="dashboard-greeting-detail">正在加载你的工作概览...</span>
+        </div>
+        <div class="dashboard-highlight-actions">
+          <button type="button" class="primary-action" data-dashboard-view="agent">询问 Agent</button>
+          <button type="button" class="secondary-action" data-dashboard-view="knowledge">查看知识库</button>
+        </div>
+      </article>
+      <div class="dashboard-metric-grid">
+        <article class="dashboard-metric">
+          <span class="dashboard-metric-label">待受理</span>
+          <strong id="dashboard-open-count">0</strong>
+          <small>我提交后等待响应</small>
+        </article>
+        <article class="dashboard-metric">
+          <span class="dashboard-metric-label">处理中</span>
+          <strong id="dashboard-in-progress-count">0</strong>
+          <small>正在由服务团队处理</small>
+        </article>
+        <article class="dashboard-metric">
+          <span class="dashboard-metric-label">待关注索引</span>
+          <strong id="dashboard-pending-index-count">0</strong>
+          <small id="dashboard-index-detail">资料正在进入检索库</small>
+        </article>
+        <article class="dashboard-metric dashboard-metric-alert">
+          <span class="dashboard-metric-label">索引失败</span>
+          <strong id="dashboard-failed-index-count">0</strong>
+          <small>需要检查资料或重新提交</small>
+        </article>
+      </div>
+    </section>
+    <div class="dashboard-content-grid">
+      <section class="dashboard-panel dashboard-ticket-panel">
+        <div class="dashboard-panel-heading">
+          <div>
+            <h2>最近工单</h2>
+            <p>只显示由当前操作人创建的工单。</p>
+          </div>
+          <span id="dashboard-ticket-total" class="activity-count">0</span>
+        </div>
+        <div id="dashboard-ticket-list" class="dashboard-ticket-list"></div>
+        <button type="button" class="dashboard-text-action" data-dashboard-view="agent">通过 Agent 查询或创建工单</button>
+      </section>
+      <section class="dashboard-panel dashboard-knowledge-panel">
+        <div class="dashboard-panel-heading">
+          <div>
+            <h2>常用知识库</h2>
+            <p>进入资料库继续查看、上传或发起检索。</p>
+          </div>
+          <span id="dashboard-knowledge-total" class="activity-count">0</span>
+        </div>
+        <div id="dashboard-knowledge-list" class="dashboard-knowledge-list"></div>
+        <button type="button" class="dashboard-text-action" data-dashboard-view="knowledge">管理全部知识库</button>
+      </section>
+    </div>
+    <div class="dashboard-content-grid dashboard-lower-grid">
+      <section class="dashboard-panel">
+        <div class="dashboard-panel-heading">
+          <div>
+            <h2>索引健康</h2>
+            <p>共享知识资料的处理情况。</p>
+          </div>
+        </div>
+        <dl class="dashboard-index-summary">
+          <div>
+            <dt>知识库</dt>
+            <dd id="dashboard-knowledge-base-count">0</dd>
+          </div>
+          <div>
+            <dt>资料总数</dt>
+            <dd id="dashboard-document-count">0</dd>
+          </div>
+          <div>
+            <dt>已就绪</dt>
+            <dd id="dashboard-ready-count">0</dd>
+          </div>
+        </dl>
+        <button type="button" class="dashboard-text-action" data-dashboard-view="documents">前往文档索引</button>
+      </section>
+      <section class="dashboard-panel">
+        <div class="dashboard-panel-heading">
+          <div>
+            <h2>本次会话</h2>
+            <p>当前操作人的近期 Agent 对话。</p>
+          </div>
+          <span id="dashboard-conversation-total" class="activity-count">0</span>
+        </div>
+        <div id="dashboard-conversation-list" class="dashboard-conversation-list"></div>
+      </section>
+    </div>
+  </div>
+</section>

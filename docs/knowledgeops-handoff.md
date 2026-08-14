@@ -1,240 +1,164 @@
 # KnowledgeOps Agent 项目交接文档
 
-**交接日期：** 2026-08-07  
-**仓库路径：** `D:\Agent\CoreCoder`  
-**当前项目：** 在原 CoreCoder 基础上改造的 KnowledgeOps Agent  
-**当前阶段：** 第三阶段已完成，准备进入第四阶段
+**交接日期：** 2026-08-08
+**仓库路径：** `D:\Agent\CoreCoder`
+**当前分支：** `codex/knowledgeops-agent`
+**当前阶段：** 第四阶段已完成，下一步进入第五阶段 LangGraph Agent 工作流
 
 ## 1. 新窗口阅读顺序
 
-新窗口接手时，请先按以下顺序阅读：
+新窗口接手时，按以下顺序阅读：
 
 1. 本文件：`docs/knowledgeops-handoff.md`
 2. 完整学习记录：`docs/knowledgeops-learning-log.md`
-3. 项目配置：`pyproject.toml`、`.env`（只查看变量名和非敏感配置，不要输出 API Key）
-4. 第三阶段核心代码：`knowledgeops/rag/`、`knowledgeops/services/indexing.py`、`knowledgeops/tasks/indexing.py`
-5. 第四阶段交付计划：学习记录中的“一周交付计划”表格
+3. 项目配置：`pyproject.toml`、`.env`。只查看变量名和非敏感配置，绝不输出 API Key。
+4. 第四阶段核心目录：`knowledgeops/rag/`、`knowledgeops/evaluation/`、`knowledgeops/tasks/indexing.py`
+5. HTTP 接口：`knowledgeops/api/routers/knowledge_bases.py`、`knowledgeops/schemas/knowledge.py`
 
-接手后的工作方式必须延续当前约定：先说明要改的文件、代码位置、项目作用和修改原因，再让用户手动修改；每次完成后补充学习日志。除非用户明确要求，不要直接替用户修改业务代码。
+工作方式必须延续以下约定：
 
-## 2. 项目背景与技术结论
+- 用户手动修改所有业务代码；助手先说明完整文件路径、代码位置、作用和修改原因，再让用户修改。
+- 助手负责维护 `docs/knowledgeops-learning-log.md`；未经用户明确要求，不直接修改业务代码。
+- 每个功能必须先有聚焦测试，再跑全量 pytest。不要为了消除本地 Qdrant 的 warning 删除生产所需的 payload index 代码。
 
-本项目最初是 CoreCoder，一个 CLI Coding Agent。改造后新增了独立的 `knowledgeops/` 应用包，用于企业知识库、文档索引、语义检索和后续 Agent 工作流。
+## 2. 项目背景与当前技术栈
 
-当前项目不是 LangChain 项目，也还没有接入 LangGraph。现阶段使用的是：
+本项目源自 CoreCoder CLI Coding Agent。新增的 `knowledgeops/` 是独立的企业知识库应用包，负责知识库管理、文档索引、混合检索和后续 Agent 工作流；不要把新业务逻辑写入 `corecoder/`。
 
-- FastAPI：HTTP 服务和 REST API
-- SQLAlchemy Async：异步数据库访问
-- SQLite：本地开发和自动化测试
-- PostgreSQL：计划中的容器化部署数据库
-- Alembic：数据库迁移
-- pypdf：PDF 文本提取
-- OpenAI-compatible Embeddings 封装：统一调用 Embedding API
-- 智谱 BigModel：当前实际使用的 Embedding 服务
-- Qdrant Cloud：向量存储和向量相似度召回
-- pytest：自动化测试
-- Ruff：Python 静态检查
+当前技术栈：
 
-LangGraph 计划在第五阶段接入，用于把知识库问答、工单查询、建单确认等能力组织成 Agent 工作流。第四阶段先完善检索质量，不要提前引入 LangGraph。
+- FastAPI：REST API。
+- SQLAlchemy Async、SQLite：本地开发和测试数据层。
+- PostgreSQL、Alembic：后续容器化部署数据层。
+- OpenAI-compatible Embedding Provider：当前本地配置使用智谱兼容接口。
+- Qdrant Cloud：向量索引与语义召回。
+- Elasticsearch：BM25 关键字召回。
+- pytest、pytest-asyncio：自动化验证。
+- Ruff：KnowledgeOps 静态检查。
+
+项目当前不是 LangChain 或 LangGraph 项目。LangGraph 应从第五阶段开始接入，不要提前把 Agent 状态、检索和存储实现耦合在一起。
 
 ## 3. 已确认完成的内容
 
-### 第三阶段 RAG 主链路
+### 阶段 1 至阶段 3
 
-第三阶段最终验收已经通过，当前完成度记录为 100%。已实现：
+已完成 FastAPI 服务骨架、知识库和文档 API、异步数据层、文本/Markdown/PDF 解析、Chunk 切分、Embedding、Qdrant 索引、文档状态流转、SemanticRetriever 和真实 Qdrant Cloud 演示。
 
-1. 文本、Markdown 和 PDF 文档解析。
-2. 文本规范化和 Chunk 切分。
-3. `DocumentChunk` 数据库存储。
-4. Embedding Provider 抽象和确定性测试 Provider。
-5. Qdrant Collection 自动创建、维度校验和向量写入。
-6. 按 `knowledge_base_id` 过滤的向量查询。
-7. 文档索引任务和 `uploaded -> indexing -> ready/failed` 状态流转。
-8. `SemanticRetriever`，把用户问题转换为查询向量并返回结构化引用。
-9. `POST /api/v1/knowledge-bases/{knowledge_base_id}/search` 检索 API。
-10. Qdrant Cloud 真实连接、认证、写入和读取验证。
-11. 真实端到端 Markdown 索引与检索演示。
-
-### 自动化验证
-
-在正确的 `myagent` 环境中，最近一次全量测试结果为：
+文档状态流转为：
 
 ```text
-126 passed in 19.26s
+uploaded -> indexing -> ready
+                    -> failed
 ```
 
-KnowledgeOps 代码静态检查结果为：
+### 阶段 4：检索质量闭环
+
+第四阶段已完成，当前检索链路为：
 
 ```text
-conda run -n myagent python -m ruff check knowledgeops
-All checks passed!
+DocumentChunk
+  -> Qdrant 向量索引 + Elasticsearch 文本索引
+  -> 语义召回 + BM25 召回
+  -> HybridCandidate 归一化与知识库隔离
+  -> Reciprocal Rank Fusion
+  -> TokenOverlapReranker 二次排序
+  -> citable HybridRetrievedChunk
+  -> POST /api/v1/knowledge-bases/{knowledge_base_id}/search
 ```
 
-全量 `ruff check knowledgeops tests` 仍会检查到原 CoreCoder 测试文件中的格式和规则问题。这些问题不影响 pytest 运行，也不是第四阶段的业务阻塞项；如果后续要达到全仓库静态检查全绿，再单独整理 `tests/test_core.py`、`tests/test_demo.py`、`tests/test_embeddings.py` 等旧测试文件。
+离线评估模块已经提供宏平均 `Recall@k`、`MRR` 和平均检索耗时。
 
-### 真实端到端演示
+## 4. 重要架构结论
 
-运行命令：
+1. `DocumentChunk.id` 是跨系统稳定身份：Qdrant 使用 `vector_id`，Elasticsearch 使用 `_id`，融合和 API 使用 `chunk_id`。
+2. `knowledge_base_id` 必须在每层保持隔离：Qdrant payload filter、Elasticsearch term filter、候选转换校验和检索 API 路径范围。
+3. 向量相似度与 BM25 原始分数不能相加；RRF 只依据各自排名进行融合。
+4. RRF 对同一召回列表中的重复 Chunk 使用有效排名去重，不能因重复结果增加分数或压低后续候选排名。
+5. 文档索引同时写入 Qdrant 与 KeywordStore；任一路失败都将文档标记为 `failed`。当前没有跨服务事务或补偿删除机制。
+6. Rerank 在 RRF 之后运行。启用 Reranker 时，HybridRetriever 会先从两路召回最多 20 个候选，再返回用户请求的 `limit` 条，避免“先截断、后重排”失去选择空间。
+7. `TokenOverlapReranker` 是可运行的确定性基线，实现了 `Reranker` Protocol；未来可替换为 Cross-Encoder 或供应商模型，不应改变 HybridRetriever 或 API 契约。
+8. 搜索 API 公开 `chunk_id`、`score`、`rerank_score`、`sources` 和引用字段。`score` 是 RRF 分数，`rerank_score` 是二次排序分数。
 
-```powershell
-python scripts/demo_knowledgeops_rag.py
-```
+## 5. 关键文件索引
 
-成功输出的关键内容：
+### 配置、数据与索引
 
-```text
-Indexed status: ready
-Chunk count: 1
-Search results:
-- score=0.4821 source=aurora-api-handbook.md chunk=0
-```
+- `knowledgeops/config.py`：数据库、Embedding、Qdrant 与 Elasticsearch 配置。
+- `knowledgeops/services/indexing.py`：解析、切分、Embedding、双写索引和文档状态处理。
+- `knowledgeops/tasks/indexing.py`：Qdrant、Elasticsearch、SemanticRetriever、HybridRetriever 的生产工厂。
+- `knowledgeops/rag/vector_store.py`：Qdrant collection、维度校验、payload index、upsert 和过滤查询。
+- `knowledgeops/rag/elasticsearch_keyword_store.py`：Elasticsearch mapping、Chunk 写入、BM25 match 查询和资源关闭。
 
-这说明：演示文档已经完成解析、切分、Embedding、Qdrant Cloud 写入，用户问题也完成向量化，并返回带来源的检索片段。
+### 检索与评估
 
-## 4. 已解决的重要问题
+- `knowledgeops/rag/keyword_store.py`：KeywordStore、KeywordPoint、KeywordSearchResult 契约。
+- `knowledgeops/rag/hybrid.py`：向量/BM25 结果转换为统一 HybridCandidate，并校验知识库边界。
+- `knowledgeops/rag/fusion.py`：重复安全的 RRF 实现。
+- `knowledgeops/rag/retriever.py`：SemanticRetriever；`retrieve_vector_results()` 供混合检索复用。
+- `knowledgeops/rag/hybrid_retriever.py`：并行双路召回、RRF、Rerank、可引用输出和资源关闭。
+- `knowledgeops/rag/reranker.py`：Reranker Protocol 与 TokenOverlapReranker 基线。
+- `knowledgeops/evaluation/retrieval.py`：EvaluationCase、RetrievalMetrics、`evaluate_retriever()`。
 
-### Qdrant payload 索引错误
+### API 与测试
 
-曾出现：
+- `knowledgeops/api/routers/knowledge_bases.py`：知识库、文档、混合搜索 API。
+- `knowledgeops/schemas/knowledge.py`：搜索请求和响应 Schema。
+- `tests/test_hybrid_retriever.py`：双路召回、RRF、引用字段和参数边界。
+- `tests/test_reranker.py`：术语覆盖重排和 limit 校验。
+- `tests/test_evaluation.py`：Recall@k、MRR、延迟和空评估集校验。
+- `tests/test_knowledge_base_api.py`：搜索 API 调用 HybridRetriever、响应映射与资源关闭。
+- `tests/test_full_indexing.py`、`tests/test_indexing_task.py`：双写、失败状态和运行时工厂。
 
-```text
-Index required but not found for "knowledge_base_id"
-```
+## 6. 当前验证基线
 
-原因是 Qdrant Cloud 在使用 `knowledge_base_id` 过滤查询时要求该字段存在 payload index。现在 `knowledgeops/rag/vector_store.py` 的 `ensure_collection()` 会调用 `_ensure_payload_indexes()`，创建 `knowledge_base_id` 的 `KEYWORD` 索引。
-
-### Retriever 循环导入
-
-曾经在 `knowledgeops/rag/retriever.py` 中从包级入口导入 `QdrantVectorStore`，导致 `knowledgeops.rag` 尚未初始化完成时再次导入自身。现在使用同目录相对导入：
-
-```python
-from .embeddings import EmbeddingProvider
-from .vector_store import QdrantVectorStore, VectorSearchResult
-```
-
-测试代码必须放在 `tests/test_retriever.py`，不要放进生产模块。
-
-### Embedding 代理商错误
-
-之前 OpenAI-compatible 代理返回过 503 和 `model_not_found`。问题发生在 Embedding 服务或代理商，不是 Qdrant Cloud。当前已切换到智谱接口并完成真实演示，`.env` 中的模型名是 `embedding-3`。
-
-不要在代码、日志或交接文档中记录真实 API Key。之前截图中曾暴露过 Key，建议用户在对应平台轮换该 Key。
-
-### Python 环境问题
-
-项目依赖应在 `myagent` 环境中运行。推荐先激活环境：
-
-```powershell
-conda activate myagent
-python scripts/demo_knowledgeops_rag.py
-python -m pytest -q
-python -m ruff check knowledgeops
-```
-
-如果出现 `ModuleNotFoundError: No module named 'knowledgeops'`，先确认当前目录是 `D:\Agent\CoreCoder`，并确认命令使用的是 `myagent` 环境的 Python。必要时在该环境重新执行：
-
-```powershell
-python -m pip install -e ".[dev]"
-```
-
-不要把默认 Anaconda 环境中缺少依赖的结果当成项目代码失败。
-
-## 5. 重要文件索引
-
-### 配置和启动
-
-- `pyproject.toml`：项目依赖、构建包和命令入口
-- `.env`：本地敏感配置，已被 Git 忽略，不提交、不复制 Key
-- `knowledgeops/config.py`：数据库、Qdrant、Embedding 模型和维度配置
-- `knowledgeops/api/app.py`：FastAPI 应用工厂和路由注册
-- `knowledgeops/main.py`：Uvicorn 启动入口
-
-### 数据层
-
-- `knowledgeops/db.py`：异步 Engine、Session 和建表
-- `knowledgeops/models/`：知识库、文档、Chunk、审计事件 ORM 模型
-- `knowledgeops/repositories/`：数据库查询和持久化封装
-- `knowledgeops/services/knowledge.py`：知识库和文档业务规则
-- `knowledgeops/services/indexing.py`：文档解析、切分、Embedding、向量写入和状态流转
-- `migrations/`：Alembic 数据库迁移
-
-### RAG 和任务
-
-- `knowledgeops/rag/parser.py`：文本、Markdown、PDF 解析
-- `knowledgeops/rag/chunker.py`：文本切分
-- `knowledgeops/rag/embeddings.py`：Embedding Provider 协议、确定性 Provider、OpenAI-compatible Provider
-- `knowledgeops/rag/vector_store.py`：Qdrant Collection、payload index、upsert 和向量 search
-- `knowledgeops/rag/retriever.py`：问题向量化和引用结果转换
-- `knowledgeops/tasks/indexing.py`：生产依赖组装、索引任务和 Retriever 工厂
-
-### API 和测试
-
-- `knowledgeops/api/routers/knowledge_bases.py`：知识库、文档和搜索 API
-- `knowledgeops/schemas/knowledge.py`：请求和响应 Schema
-- `tests/test_rag.py`：解析、切分和 PDF 测试
-- `tests/test_vector_store.py`：Qdrant 内存模式、过滤和维度测试
-- `tests/test_retriever.py`：语义检索器测试
-- `tests/test_full_indexing.py`：数据库到向量库的端到端离线测试
-- `tests/test_knowledge_base_api.py`：知识库和搜索 API 集成测试
-- `scripts/verify_qdrant_cloud.py`：真实 Qdrant Cloud 连通性检查
-- `scripts/demo_knowledgeops_rag.py`：真实 Embedding + Qdrant Cloud RAG 演示
-
-## 6. 当前配置约束
-
-当前 `.env` 使用智谱兼容接口，配置逻辑如下：
-
-```text
-OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4/
-EMBEDDING_MODEL=embedding-3
-EMBEDDING_DIMENSIONS=512
-QDRANT_COLLECTION=knowledgeops_chunks_zhipu
-```
-
-具体 API Key 只保留在本地 `.env` 中，交接文档不得写出。Embedding 维度改变时，必须新建 Qdrant Collection 或重建旧 Collection，不能把不同维度的向量混用。
-
-## 7. 未完成事项
-
-第三阶段没有剩余阻塞项。未完成事项属于第四阶段及之后：
-
-1. Elasticsearch 关键词/BM25 召回。
-2. Qdrant 向量召回与 Elasticsearch 结果通过 RRF 融合。
-3. Rerank 模型或可替换 Reranker。
-4. Recall@5、MRR、检索耗时等离线评测。
-5. 第五阶段的 LangGraph Agent 工作流和工单协同。
-6. 第六阶段的 Celery、前端管理台和 Docker Compose 完整部署。
-7. 第七阶段的 Neo4j GraphRAG、可观测性、评测页面和演示文档。
-
-## 8. 下一步动作：第四阶段第一小步
-
-第四阶段目标是提升检索质量，而不是重写已经通过验收的语义检索链路。
-
-建议第一小步按以下顺序执行：
-
-1. 新增 `knowledgeops/rag/keyword_store.py`，先定义 Elasticsearch/BM25 关键词召回的接口和结果结构。
-2. 新增 `knowledgeops/rag/hybrid.py`，实现 Qdrant 结果与 BM25 结果的统一候选结构。
-3. 新增 `knowledgeops/rag/fusion.py`，实现 Reciprocal Rank Fusion（RRF）。
-4. 用纯内存的 Fake KeywordStore 和现有 Fake/Memory Qdrant 编写测试，先验证排序逻辑，不依赖 Elasticsearch 服务。
-5. 在 `docs/knowledgeops-learning-log.md` 增加“第四阶段第一小步”，记录每个文件的作用、设计原因和测试结果。
-
-RRF 的核心公式：
-
-```text
-RRF_score(document) = sum(1 / (k + rank_i))
-```
-
-其中 `rank_i` 是文档在某个召回器中的名次，`k` 是防止头部排名权重过大的常数。第四阶段必须保留 `knowledge_base_id` 隔离，不能因为增加 BM25 而跨知识库召回。
-
-## 9. 接手后的第一轮检查
-
-新窗口在修改代码前执行：
+必须在 `myagent` 环境和仓库根目录执行：
 
 ```powershell
 Set-Location D:\Agent\CoreCoder
 conda activate myagent
-python -m pytest -q
 python -m ruff check knowledgeops
-git status --short
+python -m pytest -q
+git diff --check
 ```
 
-如果全量测试不是 `126 passed`，先定位回归原因，不要直接开始第四阶段。确认基线后，再按照第 8 节的第一小步由用户手动实现。
+当前已确认结果：
 
+```text
+ruff check knowledgeops: passed
+pytest: 152 passed, 1 warning
+git diff --check: no trailing whitespace
+```
+
+唯一 warning 来自本地内存 Qdrant：payload index 在内存模式无效果。生产 Qdrant Cloud 需要此索引，保留 `vector_store.py` 中的生产代码不变。
+
+不要用系统默认 Anaconda Python 运行 Ruff；它缺少 Ruff 依赖。终端必须显示 `(myagent)`，或使用 `conda run -n myagent`。
+
+`ruff check knowledgeops tests` 仍会报告旧 CoreCoder 测试中的历史问题，例如 `tests/test_core.py`、`tests/test_demo.py`、`tests/test_migrations.py`。这些不属于第四阶段变更；未经用户要求，不要对整个旧测试集执行 `ruff --fix`。
+
+## 7. 当前工作区状态
+
+第四阶段的业务代码、测试和学习日志均尚未提交，工作区有预期中的修改和新增文件。不要使用 `git reset --hard`、`git checkout --` 或其他方式清除这些变更。
+
+学习日志是第四阶段逐步设计和测试证据的完整记录：`docs/knowledgeops-learning-log.md`。
+
+## 8. 未完成事项与第五阶段入口
+
+第四阶段没有剩余业务阻塞项。后续范围：
+
+1. 第五阶段：LangGraph Agent 工作流和工单协同。
+2. 第六阶段：Celery 异步任务、前端管理台、Docker Compose，以及真实 Elasticsearch 容器联调。
+3. 第七阶段：Neo4j GraphRAG、可观测性、评测页面和演示文档。
+
+第五阶段的第一小步不是直接创建复杂图，而是先定义 Agent 的状态和边界：
+
+1. 新建 `knowledgeops/agents/`，定义可序列化的 Agent state 和用户意图类型。
+2. 明确三条初始路径：知识库问答、工单查询、创建工单。
+3. 创建工单必须经过显式确认节点；查询和问答不得产生写操作。
+4. 将 HybridRetriever 作为只读工具注入 Agent，不在节点中重复实现检索、RRF 或 Rerank。
+5. 为路由、确认和工具调用先写离线测试，再接入 LangGraph 依赖和具体图实现。
+
+## 9. 安全与配置约束
+
+`.env` 仅保存在本地，不提交。交接文档、测试输出、截图和日志均不得记录真实 API Key、数据库密码或内部业务文档内容。
+
+Embedding 维度变化时必须新建或重建 Qdrant collection；不同维度的向量不得写入同一 collection。

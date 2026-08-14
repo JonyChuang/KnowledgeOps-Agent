@@ -1,9 +1,9 @@
 """Database access objects for knowledge bases, documents, and audit events."""
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AuditEvent, Document, KnowledgeBase
+from ..models import AuditEvent, Document, DocumentStatus, KnowledgeBase
 
 
 class KnowledgeBaseRepository:
@@ -66,6 +66,20 @@ class DocumentRepository:
             .order_by(Document.created_at.desc())
         )
         return list(result)
+
+    async def count_by_status(self) -> dict[DocumentStatus, int]:
+        """Return index lifecycle counts for the dashboard read model.
+
+        Knowledge-base membership is introduced in a later authorization phase.
+        Until then this matches the shared scope exposed by the existing
+        knowledge-base management endpoints.
+        """
+        result = await self.session.execute(
+            select(Document.status, func.count(Document.id)).group_by(
+                Document.status
+            )
+        )
+        return {status: count for status, count in result.all()}
 
 
 class AuditEventRepository:

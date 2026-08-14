@@ -1,0 +1,35 @@
+<section id="personal-library-view" class="view">
+  <div class="personal-library-workspace">
+    <header class="tool-page-header personal-library-header">
+      <div>
+        <p class="tool-eyebrow">Personal Workspace</p>
+        <h1>收藏与最近访问</h1>
+        <p>保留常用知识库、工单和对话入口，减少重复查找。</p>
+      </div>
+      <button id="refresh-personal-library" type="button" class="secondary-action">刷新</button>
+    </header>
+    <p id="personal-library-message" class="form-message" role="status"></p>
+    <div class="personal-library-grid">
+      <section class="personal-library-panel" aria-live="polite">
+        <div class="personal-library-panel-heading">
+          <div>
+            <h2>我的收藏</h2>
+            <p>手动保存的重要知识、工单或对话。</p>
+          </div>
+          <span id="favorites-count" class="activity-count">0</span>
+        </div>
+        <div id="favorites-list" class="personal-item-list"></div>
+      </section>
+      <section class="personal-library-panel" aria-live="polite">
+        <div class="personal-library-panel-heading">
+          <div>
+            <h2>最近访问</h2>
+            <p>从搜索和个人入口打开过的内容。</p>
+          </div>
+          <span id="recent-visits-count" class="activity-count">0</span>
+        </div>
+        <div id="recent-visits-list" class="personal-item-list"></div>
+      </section>
+    </div>
+  </div>
+</section>

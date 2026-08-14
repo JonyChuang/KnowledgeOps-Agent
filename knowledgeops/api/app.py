@@ -4,10 +4,21 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from langgraph.checkpoint.memory import MemorySaver
 
 from ..config import Settings, get_settings
 from ..db import create_database
-from .routers import documents_router, knowledge_bases_router
+from .routers import (
+    agent_router,
+    auth_router,
+    dashboard_router,
+    documents_router,
+    engagement_router,
+    knowledge_bases_router,
+    notifications_router,
+    service_desk_router,
+    tickets_router,
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -35,6 +46,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     # The indexing endpoint reads Qdrant and Embedding configuration from here.
     app.state.settings = settings
+    # One app-wide checkpointer lets a later HTTP request resume a paused turn.
+    app.state.agent_checkpointer = MemorySaver()
 
     app.add_middleware(
         CORSMiddleware,
@@ -53,8 +66,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(router)
 
     # Business routers reuse the version prefix defined in Settings.
+    app.include_router(auth_router, prefix=settings.api_prefix)
     app.include_router(knowledge_bases_router, prefix=settings.api_prefix)
     app.include_router(documents_router, prefix=settings.api_prefix)
+    app.include_router(agent_router, prefix=settings.api_prefix)
+    app.include_router(dashboard_router, prefix=settings.api_prefix)
+    app.include_router(engagement_router, prefix=settings.api_prefix)
+    app.include_router(tickets_router, prefix=settings.api_prefix)
+    app.include_router(service_desk_router, prefix=settings.api_prefix)
+    app.include_router(notifications_router, prefix=settings.api_prefix)
     return app
 
 

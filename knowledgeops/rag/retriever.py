@@ -34,6 +34,31 @@ class SemanticRetriever:
         self.embedding_provider = embedding_provider
         self.vector_store = vector_store
 
+    async def retrieve_vector_results(
+        self,
+        query: str,
+        *,
+        knowledge_base_id: str,
+        limit: int = 5,
+    ) -> list[VectorSearchResult]:
+        """Return validated low-level vector results for hybrid retrieval."""
+        clean_query = query.strip()
+        if not clean_query:
+            raise ValueError("Query cannot be empty.")
+
+        if not knowledge_base_id.strip():
+            raise ValueError("Knowledge base ID cannot be empty.")
+
+        vectors = await self.embedding_provider.embed_texts([clean_query])
+        if len(vectors) != 1:
+            raise RuntimeError("Embedding provider must return exactly one query vector.")
+
+        return await self.vector_store.search(
+            vectors[0],
+            limit=limit,
+            knowledge_base_id=knowledge_base_id,
+        )
+
     async def retrieve(
         self,
         query: str,
@@ -42,22 +67,10 @@ class SemanticRetriever:
         limit: int = 5,
     ) -> list[RetrievedChunk]:
         """Return ranked, citable chunks for one non-empty user question."""
-        clean_query = query.strip()
-        if not clean_query:
-            raise ValueError("Query cannot be empty.")
-
-        if not knowledge_base_id.strip():
-            raise ValueError("Knowledge base ID cannot be empty.")
-
-        # One question produces one query vector for nearest-neighbor search.
-        vectors = await self.embedding_provider.embed_texts([clean_query])
-        if len(vectors) != 1:
-            raise RuntimeError("Embedding provider must return exactly one query vector.")
-
-        vector_results = await self.vector_store.search(
-            vectors[0],
-            limit=limit,
+        vector_results = await self.retrieve_vector_results(
+            query,
             knowledge_base_id=knowledge_base_id,
+            limit=limit,
         )
 
         # Convert low-level Qdrant payloads into an explicit citation contract.

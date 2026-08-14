@@ -1,0 +1,103 @@
+<dialog id="auth-dialog" class="auth-dialog">
+  <form id="auth-form" class="auth-form" novalidate>
+    <div class="auth-heading">
+      <span class="brand-mark">K</span>
+      <div>
+        <h1>登录 KnowledgeOps</h1>
+        <p id="auth-description">企业知识库与工单协同平台</p>
+      </div>
+    </div>
+    <div class="auth-tabs" role="tablist" aria-label="账号操作">
+      <button id="auth-login-tab" class="auth-tab is-active" type="button" role="tab" aria-selected="true">登录</button>
+      <button id="auth-register-tab" class="auth-tab" type="button" role="tab" aria-selected="false">注册</button>
+    </div>
+    <label>
+      <span class="sr-only">用户名</span>
+      <input id="auth-username" name="username" type="text" autocomplete="username" placeholder="用户名" minlength="3" maxlength="120" required />
+    </label>
+    <label id="auth-display-name-field" hidden>
+      <span class="sr-only">显示名称</span>
+      <input id="auth-display-name" name="display_name" type="text" autocomplete="name" placeholder="显示名称" maxlength="120" />
+    </label>
+    <label>
+      <span class="sr-only">密码</span>
+      <input id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="密码（至少 8 位）" minlength="8" maxlength="128" required />
+    </label>
+    <p id="auth-message" class="form-message" role="status"></p>
+    <button id="auth-submit" type="submit" class="primary-action">登录</button>
+    <p class="auth-footnote">登录后将使用服务端会话保护你的数据。</p>
+  </form>
+</dialog>
+<dialog id="knowledge-base-dialog">
+  <form id="knowledge-base-form" class="form-grid">
+    <h2>新建知识库</h2>
+    <label>
+      名称
+      <input id="knowledge-base-name" name="name" type="text" maxlength="120" required />
+    </label>
+    <label>
+      部门
+      <input id="knowledge-base-department" name="department" type="text" value="general" maxlength="80" required />
+    </label>
+    <label class="form-wide">
+      描述
+      <textarea id="knowledge-base-description" name="description" rows="4" maxlength="4000"></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button id="close-dialog-button" type="button">取消</button>
+      <button type="submit">创建</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="knowledge-document-import-dialog">
+  <form id="knowledge-document-import-form" class="form-grid">
+    <div class="dialog-heading">
+      <p class="knowledge-eyebrow">资料导入</p>
+      <h2>添加文档</h2>
+      <p id="knowledge-document-import-target"></p>
+    </div>
+    <label>
+      操作人
+      <input id="knowledge-document-import-actor" type="text" maxlength="120" required />
+    </label>
+    <label>
+      文档名称
+      <input id="knowledge-document-import-name" type="text" maxlength="255" required />
+    </label>
+    <label class="form-wide">
+      文档内容
+      <textarea id="knowledge-document-import-content" rows="8" maxlength="50000" required></textarea>
+    </label>
+    <p id="knowledge-document-import-message" class="form-message" role="status"></p>
+    <div class="dialog-actions">
+      <button id="close-document-import-dialog" class="secondary-action" type="button">取消</button>
+      <button type="submit" class="primary-action">添加并索引</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="knowledge-web-import-dialog">
+  <form id="knowledge-web-import-form" class="form-grid">
+    <div class="dialog-heading">
+      <p class="knowledge-eyebrow">网页导入</p>
+      <h2>导入网页内容</h2>
+      <p>仅支持可公开访问的 HTTP / HTTPS 网页。</p>
+    </div>
+    <label>
+      操作人
+      <input id="knowledge-web-import-actor" type="text" maxlength="120" required />
+    </label>
+    <label>
+      网页地址
+      <input id="knowledge-web-import-url" type="url" placeholder="https://example.com/article" maxlength="2048" required />
+    </label>
+    <label class="form-wide">
+      文档名称（可选）
+      <input id="knowledge-web-import-name" type="text" maxlength="255" />
+    </label>
+    <p id="knowledge-web-import-message" class="form-message" role="status"></p>
+    <div class="dialog-actions">
+      <button id="close-web-import-dialog" class="secondary-action" type="button">取消</button>
+      <button type="submit" class="primary-action">导入并索引</button>
+    </div>
+  </form>
+</dialog>

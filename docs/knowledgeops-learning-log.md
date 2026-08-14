@@ -675,6 +675,252 @@ Search results:
 
 ---
 
+## 阶段 4：混合检索基础（第一小步）
+
+**日期：** 2026-08-07
+**状态：** 已验证
+
+### 阶段目标
+
+在不改动第三阶段语义检索主链路的前提下，为 BM25 关键词召回和 Qdrant 向量召回建立统一候选边界，并实现可独立测试的 RRF 排序基础。
+
+### 修改内容
+
+| 文件 | 修改内容 | 项目作用 |
+| --- | --- | --- |
+| `knowledgeops/rag/keyword_store.py` | 新增 `KeywordSearchResult` 与 `KeywordStore` Protocol。 | 为未来 Elasticsearch/BM25 适配器定义稳定接口，并要求按 `knowledge_base_id` 隔离。 |
+| `knowledgeops/rag/hybrid.py` | 新增 `HybridCandidate` 和向量/关键词结果转换函数，校验知识库 ID 与 Chunk ID。 | 统一两个召回器的候选结构，防止跨知识库结果进入融合层。 |
+| `knowledgeops/rag/fusion.py` | 新增 `FusedCandidate` 与 RRF，按 `1 / (k + rank)` 合并排名贡献。 | 将排序逻辑与具体存储实现解耦，为 Rerank 和离线评测提供基础。 |
+| `knowledgeops/rag/fake_keyword_store.py` | 新增纯内存关键词召回替身，按查询词命中数量排序并保留知识库隔离。 | 在不启动 Elasticsearch 的情况下验证 BM25 召回接口和确定性排序。 |
+| `knowledgeops/rag/__init__.py` | 导出新公共接口。 | 保持 RAG 模块统一导入边界。 |
+| `tests/test_hybrid.py`、`tests/test_fusion.py`、`tests/test_fake_keyword_store.py` | 覆盖转换、隔离、去重、参数校验和关键词匹配排序。 | 不依赖外部服务验证混合检索基础逻辑。 |
+
+### 设计决策
+
+`KeywordStore` 先定义为 Protocol，不立即绑定 Elasticsearch；BM25 分数和向量相似度不直接相加，RRF 只使用各自排名；重复 Chunk 不重复计分，也不占用后续有效排名；融合结果按分数和 `chunk_id` 稳定排序。FakeKeywordStore 仅用于测试和本地演示，不代表生产 BM25 实现。
+
+### 遇到的问题与解决方式
+
+RRF 首次测试将两个排名贡献误算为 `1.0`，实际应为 `1/3 + 1/2 = 5/6`。同时，重复 Chunk 被跳过但占用了原始排名，导致后续候选按第 3 名计分；改为独立的有效排名计数后修复。
+
+### 验证结果
+
+- FakeKeywordStore 聚焦测试：`3 passed`。
+- 混合候选与 RRF 聚焦测试：`8 passed`。
+- 全量测试：`137 passed, 1 warning`。
+- Ruff 检查通过。
+- 唯一警告来自本地内存 Qdrant 的 payload index 提示；生产 Qdrant Cloud 仍需要该索引，因此保留生产代码不变。
+
+### 本阶段收获
+
+检索系统应先定义召回结果契约，再实现存储适配器；RRF 融合排名而不是原始分数；知识库隔离必须在每层保留；测试可以暴露数学期望和排名定义中的歧义；内存替身可以在没有外部服务时验证接口和业务排序。
+
+### 下一小步
+
+实现 Elasticsearch 关键词召回适配器和索引映射，将文档 Chunk 同步写入 Elasticsearch，并用 FakeKeywordStore 保持离线测试不依赖外部服务。
+
+---
+
+## 阶段 4：Elasticsearch BM25 适配器（第二小步）
+
+**日期：** 2026-08-07
+**状态：** 已验证
+
+### 阶段目标
+
+为 KeywordStore 契约提供真实 Elasticsearch 实现，并在不连接外部 Elasticsearch 服务的情况下验证索引 mapping、Chunk 写入、BM25 查询、知识库隔离和客户端释放。
+
+### 修改内容
+
+| 文件 | 修改内容 | 项目作用 |
+| --- | --- | --- |
+| `pyproject.toml` | 新增官方 `elasticsearch` Python 客户端依赖。 | 提供 `AsyncElasticsearch`，与现有 FastAPI、SQLAlchemy 和 Qdrant 异步调用方式保持一致。 |
+| `knowledgeops/config.py` | 新增 Elasticsearch URL、API Key 和索引名配置。 | 将外部服务地址与密钥从业务代码中隔离；API Key 使用 `SecretStr` 防止日志泄露。 |
+| `knowledgeops/rag/keyword_store.py` | 新增 `KeywordPoint`、`upsert_points()` 和 `close()` 契约。 | 让关键词存储同时具备 Chunk 写入、BM25 查询和生命周期管理能力。 |
+| `knowledgeops/rag/elasticsearch_keyword_store.py` | 新增 Elasticsearch 适配器：创建 mapping、按稳定 Chunk ID 写入文档、执行 `match` 查询并按 `knowledge_base_id` 过滤。 | 将 Elasticsearch 的 API 细节封装在 RAG 存储层，调用方继续只依赖 KeywordStore 契约。 |
+| `knowledgeops/rag/fake_keyword_store.py` | 补齐 `upsert_points()` 和 `close()`。 | 让离线 Fake 与生产适配器遵循相同接口，避免测试路径和生产路径分叉。 |
+| `tests/test_elasticsearch_keyword_store.py` | 使用 Fake Elasticsearch Client 验证 mapping、写入、BM25 请求、服务端过滤、输入校验与关闭客户端。 | 在不启动 Elasticsearch 的情况下测试生产适配器行为。 |
+| `tests/test_config.py`、`tests/test_fake_keyword_store.py` | 验证默认 Elasticsearch 配置和 Fake 写入能力。 | 确保配置与离线替身保持可回归验证。 |
+
+### 设计决策
+
+1. `knowledge_base_id` 映射为 Elasticsearch `keyword`，并通过 `term` filter 在服务端完成知识库隔离；不允许先跨知识库召回再由应用层丢弃结果。
+2. `text` 映射为 Elasticsearch `text`，`match` 查询使用 Elasticsearch 默认 BM25 评分；当前不引入中文分词插件，后续 Docker 部署时再根据语料选择分析器。
+3. 数据库 `DocumentChunk.id` 同时作为 Elasticsearch `_id` 和 Qdrant `vector_id`。两个召回器因此能在 RRF 中精确识别同一 Chunk。
+4. 写入使用 `refresh="wait_for"`，使当前同步索引流程在文档标记为 ready 前可以立即被关键词检索到。批量优化将在后续异步任务阶段处理。
+5. 测试以 Fake Client 注入，不连接 `localhost:9200`，因此网络、容器或凭据问题不会影响单元测试。
+
+### 验证结果
+
+- Elasticsearch 适配器测试：`3 passed`。
+- 全量测试：`141 passed, 1 warning`。
+- `ElasticsearchKeywordStore` 可从 `knowledgeops.rag` 公共入口导入。
+- Ruff 自动修复 import 与格式后无剩余问题。
+- 唯一警告仍来自本地内存 Qdrant 的 payload index 提示，与 Elasticsearch 适配器无关。
+
+### 下一小步
+
+将 KeywordStore 注入 `DocumentIndexingService` 和运行时任务工厂：文档索引成功时，Qdrant 与 Elasticsearch 都必须写入同一组 Chunk；任一写入失败时，文档必须标记为 failed，不能只完成其中一路。
+
+---
+
+## 阶段 4：双写索引与失败状态（第三小步）
+
+**日期：** 2026-08-08
+**状态：** 已验证
+
+### 阶段目标
+
+将 Qdrant 与 KeywordStore 连接到同一个文档索引工作流，使每个持久化 Chunk 同时进入向量索引和关键词索引；任意外部存储写入失败时，文档状态必须如实变为 `failed`。
+
+### 修改内容
+
+| 文件 | 修改内容 | 项目作用 |
+| --- | --- | --- |
+| `knowledgeops/services/indexing.py` | `DocumentIndexingService` 接收 KeywordStore，从既有 VectorPoint 复用 Chunk ID 和 payload 构造 KeywordPoint，并依次写入 Qdrant 和关键词存储。 | 让两种召回器使用同一份 Chunk 元数据，保证后续 RRF 能以稳定 ID 合并候选。 |
+| `knowledgeops/tasks/indexing.py` | 新增 ElasticsearchKeywordStore 运行时工厂，任务支持注入或构造 KeywordStore，并在任务结束时释放自行创建的客户端。 | 生产路径从 Settings 创建真实适配器，测试路径可注入 FakeKeywordStore。 |
+| `knowledgeops/tasks/__init__.py` | 导出 Elasticsearch 运行时工厂。 | 保持任务模块公共入口稳定。 |
+| `tests/test_full_indexing.py` | 验证正常双写收到同一组 Chunk；新增关键词存储失败测试。 | 确保文档只会在两路索引都成功后标记 ready，失败时保存明确错误状态。 |
+| `tests/test_indexing_task.py` | 验证 Elasticsearch 工厂读取配置，并让任务测试注入 FakeKeywordStore。 | 覆盖生产依赖组装与离线测试隔离。 |
+
+### 设计决策
+
+1. KeywordPoint 从已经准备好的 VectorPoint 复制 `chunk_id` 和 payload，而不是重新拼装字段，避免两个索引因元数据漂移而无法在 RRF 中去重。
+2. 向量库与 Elasticsearch 不具备跨服务事务。当前策略是：任一路失败，DocumentIndexingService 捕获异常并将文档标为 `failed`；后续可加入补偿清理孤立外部记录的机制。
+3. 外部客户端的所有权由任务工厂管理：注入的测试依赖由调用者负责关闭，生产创建的 Qdrant 和 Elasticsearch 客户端由任务在 finally 中释放。
+
+### 验证结果
+
+- 双写与任务工厂聚焦测试：`4 passed, 1 warning`。
+- 关键词存储写入失败测试：`2 passed, 1 warning`。
+- 全量测试：`143 passed, 1 warning`。
+- 唯一警告仍来自本地内存 Qdrant 的 payload index 提示，与双写状态处理无关。
+
+### 下一小步
+
+实现 HybridRetriever：同一个问题并行调用语义检索和 BM25 关键词检索，转换为 HybridCandidate 后使用 RRF 融合，再返回完整的带引用结果；随后将搜索 API 从 SemanticRetriever 切换到 HybridRetriever。
+
+## 阶段 4：HybridRetriever（第四小步）
+
+**日期：** 2026-08-08
+**状态：** 已验证
+
+### 阶段目标
+
+在不切换现有搜索 API 的前提下，将 Qdrant 语义召回、Elasticsearch/BM25 关键字召回和 RRF 融合串联为独立的 `HybridRetriever`，并向调用方返回带完整引用信息的结构化结果。
+
+### 修改内容
+
+| 文件 | 修改内容 | 项目作用 |
+| --- | --- | --- |
+| `knowledgeops/rag/retriever.py` | 为 `SemanticRetriever` 增加 `retrieve_vector_results()`，并让原有 `retrieve()` 复用该方法。 | 将“问题向量化与 Qdrant 查询”保留在语义检索器内，供原语义检索和混合检索共同使用，避免 HybridRetriever 越过既有边界直接操作 Qdrant。 |
+| `knowledgeops/rag/hybrid_retriever.py` | 新增 `HybridRetriever` 与 `HybridRetrievedChunk`；并行执行向量和关键字召回，统一候选后以 RRF 融合。 | 作为混合检索编排层，隔离底层存储细节，输出包含来源、文档、片段位置和文本的可引用结果。 |
+| `knowledgeops/rag/__init__.py` | 导出新的混合检索公共类型。 | 调用方可从 `knowledgeops.rag` 统一导入，而无需依赖内部文件路径。 |
+| `tests/test_hybrid_retriever.py` | 新增离线集成测试和参数校验测试。 | 使用内存 Qdrant 与 FakeKeywordStore 验证双路召回、RRF 得分、知识库隔离、引用字段及请求参数在外部调用前被校验。 |
+
+### 设计决策
+
+1. `HybridRetriever` 只负责编排，不实现 Embedding、Qdrant 查询或 BM25 查询；这些职责继续分别属于 `SemanticRetriever` 和 `KeywordStore`。
+2. 两路召回使用 `asyncio.gather()` 并行执行，因为它们彼此独立，可减少单次检索等待时间。
+3. 融合前必须通过 `vector_candidates()` 和 `keyword_candidates()` 校验 `knowledge_base_id`；融合后再次校验引用 payload，避免跨知识库或缺少引用字段的结果被返回。
+4. 对空问题、空知识库 ID 和非正数 `limit` 在 HybridRetriever 入口处直接失败，避免无效请求触发 Embedding、Qdrant 或 Elasticsearch 调用。
+5. 向量相似度与 BM25 分数不直接相加；RRF 只依据各自排名贡献分数，因此不同检索器的评分尺度不会相互污染。
+
+### 验证结果
+
+- `python -m pytest tests/test_hybrid_retriever.py -q`：`4 passed, 1 warning`。
+- `python -m pytest -q`：`147 passed, 1 warning`。
+- `python -m ruff check knowledgeops tests/test_hybrid_retriever.py`：通过。
+- `git diff --check`：未报告 trailing whitespace；仅保留学习日志 LF/CRLF 换行符提示。
+- 唯一 pytest 警告仍来自本地内存 Qdrant 的 payload index 提示。生产 Qdrant Cloud 仍需要该索引，因此不删除对应代码。
+
+### 本阶段收获
+
+混合检索应将“并行召回、候选归一化、排名融合、引用输出”分层实现。参数化测试会按参数组合展开为多个独立测试用例，本次新增 1 条集成测试和 3 条参数校验用例，因此全量测试数量从 143 增至 147。
+
+### 下一小步
+
+在 `knowledgeops/tasks/indexing.py` 增加 HybridRetriever 运行时工厂，并在搜索 API 中把 `SemanticRetriever` 替换为 `HybridRetriever`；随后补充 API 集成测试，验证 HTTP 搜索接口实际使用两路召回与 RRF 融合。
+
+## 阶段 4：HybridRetriever 运行时接入与搜索 API（第五小步）
+
+**日期：** 2026-08-08
+**状态：** 已验证
+
+### 阶段目标
+
+将已离线验证的 HybridRetriever 接入生产运行时工厂与知识库搜索 API，使 HTTP 搜索请求实际执行 Qdrant 向量召回、Elasticsearch/BM25 关键字召回与 RRF 融合，而不是继续停留在仅语义检索路径。
+
+### 修改内容
+
+| 文件 | 修改内容 | 项目作用 |
+| --- | --- | --- |
+| `knowledgeops/rag/hybrid_retriever.py` | 增加 `close()`，依次释放 Qdrant 与 KeywordStore 客户端。 | 将混合检索请求拥有的外部资源集中管理，避免 API 路由了解内部存储结构。 |
+| `knowledgeops/tasks/indexing.py` | 新增 `build_hybrid_retriever()`。 | 从 Settings 组装 SemanticRetriever 与 ElasticsearchKeywordStore，作为生产检索依赖的唯一创建入口。 |
+| `knowledgeops/tasks/__init__.py` | 导出混合检索工厂。 | 保持任务模块的公共导入边界稳定。 |
+| `knowledgeops/schemas/knowledge.py` | 搜索响应从 `vector_id` 升级为 `chunk_id`，并新增 `sources`。 | 对外暴露跨 Qdrant、Elasticsearch 与 RRF 均稳定的 Chunk 身份，以及结果来自哪些召回器。 |
+| `knowledgeops/api/routers/knowledge_bases.py` | 搜索路由改用 `build_hybrid_retriever()`，请求结束时调用 `close()`。 | HTTP API 现已进入完整混合检索链路，并正确释放两类外部客户端。 |
+| `tests/test_indexing_task.py` | 新增运行时工厂组合测试。 | 验证工厂会把语义检索器与关键字存储组装为同一个 HybridRetriever，而不连接外部服务。 |
+| `tests/test_knowledge_base_api.py` | 更新搜索 API 集成测试的替身与响应断言。 | 验证路由调用 HybridRetriever、返回 `chunk_id` 和 `sources`，并在请求完成后关闭检索器。 |
+
+### 设计决策
+
+1. 运行时工厂负责依赖装配，路由只负责知识库存在性校验、调用检索器和 HTTP 响应转换。
+2. `HybridRetriever.close()` 使用 `try/finally`，即使 Qdrant 关闭失败也仍会关闭 Elasticsearch 客户端。
+3. API 响应使用 `chunk_id` 而不是特定向量库的 `vector_id`，避免上层客户端耦合 Qdrant 实现。
+4. `sources` 在 JSON 响应中为数组，例如 `["vector", "keyword"]`，用于展示和调试混合召回来源。
+
+### 验证结果
+
+- 搜索 API 与任务工厂聚焦测试：`11 passed, 1 warning`。
+- 全量测试：`148 passed, 1 warning`。
+- 唯一 warning 仍为本地内存 Qdrant 不使用 payload index 的提示；生产 Qdrant Cloud 仍需保留该索引。
+
+### 下一小步
+
+实现可替换的 Reranker：在 RRF 融合结果之后对候选片段二次排序，并用离线替身测试其输入、排序与知识库隔离；随后建立 Recall@5、MRR 与检索耗时的离线评估模块。
+
+## 阶段 4：检索质量闭环完成（最终收口）
+
+**日期：** 2026-08-08
+**状态：** 已完成
+
+### 阶段成果
+
+第四阶段现已形成完整的检索质量链路：
+
+```text
+文档双写
+  -> Qdrant 向量召回 + Elasticsearch BM25 召回
+  -> RRF 融合
+  -> TokenOverlapReranker 二次排序
+  -> 带 Chunk 身份、来源和引用位置的 API 结果
+  -> Recall@k、MRR、平均延迟离线评估
+```
+
+### 最终修改范围
+
+| 文件或目录 | 最终作用 |
+| --- | --- |
+| `knowledgeops/rag/reranker.py` | 定义可替换的 `Reranker` 协议和离线可测的 `TokenOverlapReranker` 基线。 |
+| `knowledgeops/rag/hybrid_retriever.py` | 支持扩大候选池、RRF 后重排、`rerank_score` 和外部客户端释放。 |
+| `knowledgeops/tasks/indexing.py` | 通过运行时工厂组装带 Reranker 的生产 HybridRetriever。 |
+| `knowledgeops/api/routers/knowledge_bases.py` | 搜索 API 实际调用混合检索并在请求结束后释放资源。 |
+| `knowledgeops/schemas/knowledge.py` | 对外返回稳定的 `chunk_id`、召回来源 `sources` 和 `rerank_score`。 |
+| `knowledgeops/evaluation/` | 提供 Recall@k、MRR 与平均检索延迟的离线评估契约。 |
+| `tests/test_reranker.py`、`tests/test_evaluation.py` | 验证二次排序和评估指标数学定义。 |
+
+### 最终验收
+
+- 全量 pytest：`152 passed, 1 warning`。
+- `python -m ruff check knowledgeops`：通过。
+- `git diff --check`：通过；仅有学习日志 LF/CRLF 换行符提示。
+- 警告来源：本地内存 Qdrant 不使用 payload index。生产 Qdrant Cloud 仍需要该索引，因此保留生产代码。
+
+### 阶段结论
+
+第四阶段不是只增加了一个搜索适配器，而是建立了可扩展的检索质量边界：召回器可以替换，融合只依赖排名，Reranker 可以替换，评估指标可以独立运行。第五阶段可以在此基础上接入 LangGraph，而不需要把存储、排序和 Agent 编排混在一起。
+
 ## 一周交付计划
 
 **目标：** 在七天内交付可部署、可评测、可现场演示的 KnowledgeOps Agent。V2 加分项必须形成真实调用链，不能只在依赖清单中出现。

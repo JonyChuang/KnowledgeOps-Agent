@@ -1,6 +1,7 @@
 """Pydantic contracts for knowledge-base and document HTTP APIs."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,6 +38,12 @@ class TextDocumentCreate(BaseModel):
     source_type: str = Field(default="text", max_length=32)
 
 
+class WebPageImportCreate(BaseModel):
+    """Validated URL and optional display name for webpage ingestion."""
+
+    url: str = Field(min_length=1, max_length=2_048)
+    source_name: str | None = Field(default=None, min_length=1, max_length=255)
+
 class DocumentRead(BaseModel):
     """Document metadata and lifecycle state returned to management clients."""
 
@@ -53,6 +60,14 @@ class DocumentRead(BaseModel):
     updated_at: datetime
 
 
+class DocumentIndexTaskRead(BaseModel):
+    """Acknowledgement returned after an indexing task is queued."""
+
+    document_id: str
+    task_id: str
+    status: Literal["queued"] = "queued"
+
+
 class SearchRequest(BaseModel):
     """Validated semantic-search input for one knowledge base."""
 
@@ -63,12 +78,25 @@ class SearchRequest(BaseModel):
 class SearchResultRead(BaseModel):
     """One citable document chunk returned by semantic search."""
 
-    vector_id: str
+    chunk_id: str
     score: float
+    sources: list[str]
     document_id: str
     source_name: str
     source_type: str
     chunk_index: int
     start_char: int
     end_char: int
+    text: str
+    rerank_score: float | None = None
+
+
+class GraphSearchResultRead(BaseModel):
+    """One document chunk returned through entity-based graph retrieval."""
+
+    chunk_id: str
+    document_id: str
+    knowledge_base_id: str
+    source_name: str
+    chunk_index: int
     text: str

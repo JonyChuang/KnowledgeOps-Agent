@@ -1,0 +1,23 @@
+<section id="user-management-view" class="view">
+  <div class="user-management-workspace">
+    <header class="tool-page-header">
+      <div>
+        <p class="tool-eyebrow">Administration</p>
+        <h1>用户与权限</h1>
+        <p>为员工分配服务台或管理员角色。角色变更会在该用户下次请求时立即生效。</p>
+      </div>
+      <button id="refresh-users" type="button" class="secondary-action">刷新</button>
+    </header>
+    <p id="user-management-message" class="form-message" role="status"></p>
+    <section class="user-management-panel" aria-live="polite">
+      <div class="user-management-panel-heading">
+        <div>
+          <h2>平台用户</h2>
+          <p>员工可提交和跟踪工单；服务台可处理队列；管理员可配置角色。</p>
+        </div>
+        <span id="user-management-count" class="activity-count">0</span>
+      </div>
+      <div id="user-management-list" class="user-management-list"></div>
+    </section>
+  </div>
+</section>

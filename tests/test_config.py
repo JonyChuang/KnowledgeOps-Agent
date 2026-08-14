@@ -21,3 +21,6 @@ def test_default_settings_require_alembic_migrations(monkeypatch):
     assert settings.qdrant_api_key is None
     assert settings.qdrant_collection == "knowledgeops_chunks"
     assert settings.embedding_dimensions == 512
+    assert settings.elasticsearch_url == "http://localhost:9200"
+    assert settings.elasticsearch_index == "knowledgeops_chunks"
+    assert settings.elasticsearch_api_key is None

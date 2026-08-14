@@ -79,3 +79,37 @@ def test_parse_pdf_document_extracts_page_text(monkeypatch):
     assert document.source_name == "handbook.pdf"
     assert document.source_type == "pdf"
     assert document.metadata["page_count"] == "2"
+
+def test_parse_html_document_omits_scripts_and_collects_visible_text():
+    """HTML uploads should keep readable content without script source."""
+    from knowledgeops.rag import parse_html_document
+
+    document = parse_html_document(
+        b"<html><head><title>Runbook</title><script>secret()</script></head><body><h1>VPN</h1><p>Restart the client.</p></body></html>",
+        "runbook.html",
+    )
+
+    assert document.source_type == "html"
+    assert document.metadata["title"] == "Runbook"
+    assert document.text == "Runbook\nVPN\nRestart the client."
+    assert "secret" not in document.text
+
+
+def test_parse_docx_document_extracts_paragraph_text():
+    """DOCX uploads should extract Word paragraph runs without python-docx."""
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    from knowledgeops.rag import parse_docx_document
+
+    stream = BytesIO()
+    with ZipFile(stream, "w") as archive:
+        archive.writestr(
+            "word/document.xml",
+            """<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body><w:p><w:r><w:t>First paragraph.</w:t></w:r></w:p><w:p><w:r><w:t>Second paragraph.</w:t></w:r></w:p></w:body></w:document>""",
+        )
+
+    document = parse_docx_document(stream.getvalue(), "handbook.docx")
+
+    assert document.source_type == "word"
+    assert document.text == "First paragraph.\nSecond paragraph."

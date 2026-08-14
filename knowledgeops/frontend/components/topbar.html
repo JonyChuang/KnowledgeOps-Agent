@@ -1,0 +1,25 @@
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">K</span>
+    <span>KnowledgeOps</span>
+  </div>
+  <div class="topbar-actions">
+    <span id="api-status" class="api-status">API 未检查</span>
+    <button id="refresh-button" type="button">刷新</button>
+    <div id="account-menu" class="account-menu" hidden>
+      <button id="account-menu-trigger" class="account-menu-trigger" type="button" aria-expanded="false" aria-haspopup="menu">
+        <span id="account-avatar" class="account-avatar" aria-hidden="true">K</span>
+        <span id="current-user" class="current-user"></span>
+        <span class="account-menu-chevron" aria-hidden="true">⌄</span>
+      </button>
+      <div id="account-menu-popover" class="account-menu-popover" role="menu" hidden>
+        <div class="account-menu-identity">
+          <strong id="account-menu-name"></strong>
+          <span id="account-menu-role"></span>
+        </div>
+        <button id="open-profile-button" type="button" role="menuitem">个人中心</button>
+        <button id="logout-button" type="button" role="menuitem">退出登录</button>
+      </div>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,57 @@
+<section id="graph-view" class="view">
+  <div class="graph-workspace">
+    <header class="tool-page-header">
+      <div>
+        <p class="tool-eyebrow">Entity Relationship Search</p>
+        <h1>图谱检索</h1>
+        <p>通过技术实体和业务术语，找到跨文档的关联证据。</p>
+      </div>
+      <span class="tool-status-label graph-status-label">GraphRAG</span>
+    </header>
+    <div class="graph-search-shell">
+      <form id="graph-search-form" class="graph-search-panel">
+        <div class="graph-scope-row">
+          <label>
+            检索范围
+            <select id="graph-knowledge-base" name="knowledge_base_id" required>
+              <option value="">选择知识库</option>
+            </select>
+          </label>
+          <label class="graph-limit-field">
+            返回数量
+            <input id="graph-limit" name="limit" type="number" min="1" max="20" value="5" required />
+          </label>
+        </div>
+        <label class="graph-query-field">
+          <span>输入问题或实体组合</span>
+          <textarea id="graph-query" name="query" rows="3" maxlength="4000" placeholder="例如：VPN 与 Redis 连接异常可能关联哪些排查资料？" required></textarea>
+        </label>
+        <div class="graph-search-footer">
+          <div class="graph-entity-hints">
+            <button type="button" data-graph-example="VPN">VPN</button>
+            <button type="button" data-graph-example="Redis">Redis</button>
+            <button type="button" data-graph-example="账号 权限">账号 · 权限</button>
+            <button type="button" data-graph-example="错误日志">错误日志</button>
+          </div>
+          <button type="submit" class="primary-action">检索关联</button>
+        </div>
+        <p id="graph-search-message" class="form-message" role="status"></p>
+      </form>
+      <aside class="graph-explainer">
+        <h2>关联检索如何工作？</h2>
+        <p>系统识别问题中的实体，再从同一知识库中查找与这些实体相连的文档块。</p>
+        <span>适用于故障定位、影响分析与跨资料核对。</span>
+      </aside>
+    </div>
+    <section class="graph-results-section">
+      <div class="section-title-row">
+        <div>
+          <h2>关联证据</h2>
+          <p id="graph-result-summary">等待一次图谱检索</p>
+        </div>
+        <span id="graph-result-count" class="activity-count">0</span>
+      </div>
+      <div id="graph-search-results" class="graph-results-list"></div>
+    </section>
+  </div>
+</section>

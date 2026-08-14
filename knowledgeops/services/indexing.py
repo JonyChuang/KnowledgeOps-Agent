@@ -2,14 +2,22 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AuditEvent, Document, DocumentChunk, DocumentStatus
-from ..rag import EmbeddingProvider, QdrantVectorStore, VectorPoint, parse_text_document, split_text
+from ..graphrag import EntityExtractor, GraphChunk, GraphStore
+from ..models import (
+    AuditEvent,
+    Document,
+    DocumentChunk,
+    DocumentStatus,
+    NotificationType,
+)
+from ..rag import EmbeddingProvider, KeywordPoint, KeywordStore, QdrantVectorStore, VectorPoint, parse_text_document, split_text
 from ..repositories import (
     AuditEventRepository,
     DocumentChunkRepository,
     DocumentRepository,
 )
 from .knowledge import ResourceNotFoundError
+from .notification import NotificationService
 
 
 class DocumentIndexingService:
@@ -21,13 +29,25 @@ class DocumentIndexingService:
         *,
         embedding_provider: EmbeddingProvider | None = None,
         vector_store: QdrantVectorStore | None = None,
+        keyword_store: KeywordStore | None = None,
+        graph_store: GraphStore | None = None,
+        entity_extractor: EntityExtractor | None = None,
     ):
         self.session = session
         self.documents = DocumentRepository(session)
         self.chunks = DocumentChunkRepository(session)
         self.audit_events = AuditEventRepository(session)
+        self.notifications = NotificationService(session)
         self.embedding_provider = embedding_provider
         self.vector_store = vector_store
+        self.keyword_store = keyword_store
+        self.graph_store = graph_store
+        self.entity_extractor = entity_extractor
+
+        if (graph_store is None) != (entity_extractor is None):
+            raise ValueError(
+                "Graph store and entity extractor must be provided together."
+            )
 
     async def prepare_document_chunks(
         self,
@@ -61,6 +81,7 @@ class DocumentIndexingService:
             # Parsing failures must be visible through the document-status API.
             document.status = DocumentStatus.FAILED
             document.error_message = str(error)
+            await self._notify_index_failure(document, actor=actor)
             await self.session.commit()
             await self.session.refresh(document)
             return document
@@ -105,11 +126,14 @@ class DocumentIndexingService:
         actor: str = "system",
     ) -> Document:
         """Embed stored chunks, write vectors, and finalize document indexing."""
-        if self.embedding_provider is None or self.vector_store is None:
+        if (
+            self.embedding_provider is None
+            or self.vector_store is None
+            or self.keyword_store is None
+        ):
             raise RuntimeError(
-                "Embedding provider and vector store are required for indexing."
+                "Embedding provider, vector store, and keyword store are required for indexing."
             )
-
         document = await self.prepare_document_chunks(
             document_id,
             actor=actor,
@@ -148,6 +172,34 @@ class DocumentIndexingService:
 
             await self.vector_store.upsert_points(points)
 
+            keyword_points = [
+                KeywordPoint(
+                    chunk_id=point.vector_id,
+                    payload=dict(point.payload),
+                )
+                for point in points
+            ]
+
+            await self.keyword_store.upsert_points(keyword_points)
+
+            if self.graph_store is not None and self.entity_extractor is not None:
+                for stored_chunk in stored_chunks:
+                    graph_chunk = GraphChunk(
+                        chunk_id=stored_chunk.id,
+                        document_id=document.id,
+                        knowledge_base_id=document.knowledge_base_id,
+                        source_name=document.source_name,
+                        chunk_index=stored_chunk.chunk_index,
+                        text=stored_chunk.text,
+                    )
+                    entities = self.entity_extractor.extract_entities(
+                        stored_chunk.text
+                    )
+                    await self.graph_store.replace_chunk_entities(
+                        graph_chunk,
+                        entities,
+                    )
+
             # Only mark chunks indexed after Qdrant confirms the write.
             for chunk in stored_chunks:
                 chunk.vector_id = chunk.id
@@ -183,7 +235,25 @@ class DocumentIndexingService:
 
             failed_document.status = DocumentStatus.FAILED
             failed_document.error_message = str(error)
+            await self._notify_index_failure(failed_document, actor=actor)
             await self.session.commit()
             await self.session.refresh(failed_document)
 
             return failed_document
+
+    async def _notify_index_failure(self, document: Document, *, actor: str) -> None:
+        """Notify the submitting employee when derived index data cannot be built."""
+        if not actor.strip() or actor.strip() == "system":
+            return
+        await self.notifications.notify(
+            recipient=actor,
+            title="文档索引失败",
+            content=(
+                f"资料“{document.source_name}”未能完成索引："
+                f"{document.error_message or '请检查内容后重新提交。'}"
+            ),
+            entity_type="document",
+            entity_id=document.id,
+            target_view="documents",
+            notification_type=NotificationType.SYSTEM,
+        )

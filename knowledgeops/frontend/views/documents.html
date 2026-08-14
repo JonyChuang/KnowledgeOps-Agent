@@ -1,0 +1,84 @@
+<section id="documents-view" class="view">
+  <div class="index-workspace">
+    <header class="tool-page-header">
+      <div>
+        <p class="tool-eyebrow">Document Operations</p>
+        <h1>文档索引</h1>
+        <p>将资料转为可检索的知识片段，并持续跟踪索引状态。</p>
+      </div>
+      <span class="tool-status-label">异步处理</span>
+    </header>
+    <div class="index-layout">
+      <form id="document-index-form" class="index-submit-panel">
+        <div class="panel-heading">
+          <span class="panel-icon" aria-hidden="true">+</span>
+          <div>
+            <h2>添加文本资料</h2>
+            <p>适合补充临时说明、流程和操作手册。</p>
+          </div>
+        </div>
+        <label>
+          目标知识库
+          <select id="document-knowledge-base" name="knowledge_base_id" required>
+            <option value="">选择知识库</option>
+          </select>
+        </label>
+        <div class="index-input-row">
+          <label>
+            资料名称
+            <input id="document-source-name" name="source_name" type="text" placeholder="例如：VPN 连接排障手册" required />
+          </label>
+          <label>
+            操作人
+            <input id="document-actor" name="actor" type="text" required />
+          </label>
+        </div>
+        <label>
+          文档内容
+          <textarea id="document-content" name="content" placeholder="粘贴或输入需要加入知识库的内容..." required></textarea>
+        </label>
+        <div class="index-submit-footer">
+          <span>提交后将自动分块、向量化并建立关键词索引</span>
+          <button type="submit" class="primary-action">提交索引</button>
+        </div>
+        <p id="document-index-message" class="form-message" role="status"></p>
+      </form>
+      <aside class="index-side-panel">
+        <section class="index-summary-card">
+          <p>索引流程</p>
+          <ol class="index-flow-list">
+            <li>
+              <span>1</span>
+              保存原始资料
+            </li>
+            <li>
+              <span>2</span>
+              分块与内容清洗
+            </li>
+            <li>
+              <span>3</span>
+              写入向量和关键词索引
+            </li>
+          </ol>
+        </section>
+        <section class="index-side-note">
+          <strong>更多导入方式</strong>
+          <p>本地文件和网页内容可在“知识库”中直接导入。</p>
+          <button id="go-to-knowledge-import" type="button" class="secondary-action">前往知识库</button>
+        </section>
+      </aside>
+    </div>
+    <section class="index-activity-section">
+      <div class="section-title-row">
+        <div>
+          <h2>本次处理</h2>
+          <p>查看当前页面提交的资料及处理状态。</p>
+        </div>
+        <span id="index-activity-count" class="activity-count">0</span>
+      </div>
+      <div id="document-list" class="index-activity-list">
+        <p class="index-activity-empty">提交资料后，处理状态会显示在这里。</p>
+      </div>
+    </section>
+  </div>
+</section>

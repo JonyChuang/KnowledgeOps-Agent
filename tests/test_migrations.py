@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 # The repository root is needed because Alembic reads alembic.ini from here.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,6 +28,7 @@ def test_alembic_upgrade_creates_knowledgeops_tables(tmp_path):
         env=environment,
         capture_output=True,
         text=True,
+        check=False,
         encoding="utf-8",
     )
 
@@ -45,11 +45,21 @@ def test_alembic_upgrade_creates_knowledgeops_tables(tmp_path):
 
     table_names = {row[0] for row in rows}
 
-    # Alembic's version table and all four business tables must exist.
+    # Alembic's version table and all persistent business tables must exist.
     assert {
         "alembic_version",
         "knowledge_bases",
         "documents",
         "document_chunks",
         "audit_events",
+        "tickets",
+        "ticket_activities",
+        "agent_conversations",
+        "agent_messages",
+        "notifications",
+        "favorites",
+        "recent_visits",
+        "agent_feedback",
+        "users",
+        "auth_sessions",
     }.issubset(table_names)

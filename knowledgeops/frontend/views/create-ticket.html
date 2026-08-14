@@ -1,0 +1,87 @@
+<section id="create-ticket-view" class="view">
+  <div class="create-ticket-workspace">
+    <header class="tool-page-header">
+      <div>
+        <p class="tool-eyebrow">Service Request</p>
+        <h1>创建工单</h1>
+        <p>提交前先查看相关知识资料和你历史上提交过的相似请求，避免重复提单。</p>
+      </div>
+    </header>
+    <div class="create-ticket-layout">
+      <form id="create-ticket-form" class="create-ticket-form">
+        <div class="create-ticket-form-heading">
+          <h2>描述你的服务请求</h2>
+          <p>信息越完整，服务团队越容易判断影响范围和处理优先级。</p>
+        </div>
+        <label>
+          当前操作人
+          <input id="create-ticket-actor" name="actor" type="text" maxlength="120" required />
+        </label>
+        <div class="create-ticket-field-row">
+          <label>
+            服务分类
+            <select id="create-ticket-category" name="category" required>
+              <option value="network">网络与 VPN</option>
+              <option value="account">账号与权限</option>
+              <option value="device">办公设备</option>
+              <option value="software">软件申请</option>
+              <option value="data_access">数据访问</option>
+              <option value="general">其他服务</option>
+            </select>
+          </label>
+          <label>
+            影响范围
+            <select id="create-ticket-impact" name="impact" required>
+              <option value="single_user">仅影响我</option>
+              <option value="team">影响团队</option>
+              <option value="department">影响部门</option>
+              <option value="company">影响全公司</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          问题标题
+          <input id="create-ticket-title" name="title" type="text" minlength="2" maxlength="200" placeholder="例如：无法连接企业 VPN" required />
+        </label>
+        <label>
+          问题描述
+          <textarea id="create-ticket-description" name="description" rows="6" maxlength="20000" placeholder="请说明发生时间、受影响对象、错误提示，以及已经尝试过的处理方式。" required></textarea>
+        </label>
+        <label class="create-ticket-priority-field">
+          紧急程度
+          <select id="create-ticket-priority" name="priority" required>
+            <option value="low">低：不影响日常工作</option>
+            <option value="medium" selected>中：影响部分工作</option>
+            <option value="high">高：主要工作受阻</option>
+            <option value="urgent">紧急：业务中断或广泛影响</option>
+          </select>
+        </label>
+        <div class="create-ticket-form-footer">
+          <span>附件功能将在文件存储与病毒扫描接入后开放。</span>
+          <button type="submit" class="primary-action">提交工单</button>
+        </div>
+        <p id="create-ticket-message" class="form-message" role="status"></p>
+      </form>
+      <aside class="create-ticket-assist" aria-live="polite">
+        <section>
+          <div class="create-ticket-assist-heading">
+            <div>
+              <h2>提交前建议</h2>
+              <p id="create-ticket-assist-summary">填写标题和描述后，系统会检查可用资料与历史工单。</p>
+            </div>
+            <button id="check-ticket-suggestions" type="button" class="secondary-action">检查建议</button>
+          </div>
+          <label>
+            参考知识库（可选）
+            <select id="create-ticket-knowledge-base"></select>
+          </label>
+          <div id="create-ticket-knowledge-results" class="create-ticket-result-list"></div>
+        </section>
+        <section>
+          <h2>相似历史工单</h2>
+          <div id="create-ticket-similar-results" class="create-ticket-result-list"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+</section>
