@@ -332,7 +332,10 @@ async def test_workflow_interrupts_before_creating_a_ticket() -> None:
     interrupted = await graph.ainvoke(
         AgentState(
             actor="alice",
-            user_message="请创建一个 VPN 无法连接的工单",
+            user_message=(
+                "VPN 在 Windows 11 客户端报错 619，重启后仍失败，"
+                "已持续三十分钟，只影响我本人，请创建工单。"
+            ),
         ).model_dump(mode="json"),
         config=config,
     )
@@ -361,7 +364,10 @@ async def test_workflow_rejects_ticket_creation_when_confirmation_is_false() -> 
     await graph.ainvoke(
         AgentState(
             actor="alice",
-            user_message="请创建一个 VPN 无法连接的工单",
+            user_message=(
+                "VPN 在 Windows 11 客户端报错 619，重启后仍失败，"
+                "已持续三十分钟，只影响我本人，请创建工单。"
+            ),
         ).model_dump(mode="json"),
         config=config,
     )
@@ -387,7 +393,10 @@ async def test_workflow_can_resume_with_a_new_graph_and_shared_checkpointer() ->
     interrupted = await first_graph.ainvoke(
         AgentState(
             actor="alice",
-            user_message="请创建一个 VPN 无法连接的工单",
+            user_message=(
+                "VPN 在 Windows 11 客户端报错 619，重启后仍失败，"
+                "已持续三十分钟，只影响我本人，请创建工单。"
+            ),
         ).model_dump(mode="json"),
         config=config,
     )
@@ -410,3 +419,24 @@ async def test_workflow_can_resume_with_a_new_graph_and_shared_checkpointer() ->
 
     assert state.created_ticket_id == "ticket-001"
     assert len(resumed_ticket_creation.states) == 1
+
+
+@pytest.mark.asyncio
+async def test_workflow_clarifies_incomplete_ticket_request_before_confirmation() -> None:
+    dependencies, _, _, ticket_creation = build_dependencies(AgentIntent.TICKET_CREATE)
+    graph = build_agent_graph(dependencies)
+
+    result = await graph.ainvoke(
+        AgentState(
+            actor="alice",
+            user_message="VPN 无法连接，影响我的工作，请帮我创建工单。",
+        ).model_dump(mode="json"),
+        config={"configurable": {"thread_id": "ticket-intake-clarify-1"}},
+    )
+    state = AgentState.model_validate(result)
+
+    assert "__interrupt__" not in result
+    assert state.pending_action is None
+    assert state.confirmation_status == ConfirmationStatus.NOT_REQUIRED
+    assert "补充" in (state.answer or "")
+    assert ticket_creation.states == []

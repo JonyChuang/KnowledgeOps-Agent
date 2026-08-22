@@ -114,12 +114,40 @@ class QdrantVectorStore:
 
         return dict(records[0].payload or {})
 
+    async def update_document_lifecycle(
+        self,
+        *,
+        knowledge_base_id: str,
+        document_id: str,
+        lifecycle: str,
+    ) -> None:
+        """Update document governance metadata without re-embedding its chunks."""
+        await self.ensure_collection()
+        await self.client.set_payload(
+            collection_name=self.collection_name,
+            payload={"document_lifecycle": lifecycle},
+            points=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="knowledge_base_id",
+                        match=models.MatchValue(value=knowledge_base_id),
+                    ),
+                    models.FieldCondition(
+                        key="document_id",
+                        match=models.MatchValue(value=document_id),
+                    ),
+                ]
+            ),
+            wait=True,
+        )
+
     async def search(
         self,
         query_vector: list[float],
         *,
         limit: int = 5,
         knowledge_base_id: str | None = None,
+        include_archived: bool = False,
     ) -> list[VectorSearchResult]:
         """Return nearest vectors, optionally limited to one knowledge base."""
         if len(query_vector) != self.dimensions:
@@ -142,7 +170,17 @@ class QdrantVectorStore:
                         key="knowledge_base_id",
                         match=models.MatchValue(value=knowledge_base_id),
                     )
-                ]
+                ],
+                must_not=(
+                    []
+                    if include_archived
+                    else [
+                        models.FieldCondition(
+                            key="document_lifecycle",
+                            match=models.MatchAny(any=["archived", "draft"]),
+                        )
+                    ]
+                ),
             )
 
         response = await self.client.query_points(

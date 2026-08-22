@@ -1,0 +1,13 @@
+# Identity proofing: Exception
+
+TOPIC=identity-proofing
+DOMAIN=identity
+SCENARIO=A sensitive request needs identity verification
+EMPLOYEE_DESCRIPTION=I changed phones and need account recovery
+CURRENT_ACTION=Verify identity through approved recovery factors
+RECORD_REQUIREMENT=Record verification method and reviewer
+BOUNDARY=Handle proofing rather than ordinary password reset
+TIMELINE=High-risk recovery requires same-day review
+EXCEPTION_TRIGGER=high impact incident
+EXCEPTION_ACTION=escalate to service desk
+This is a fictional, desensitized v0.4 evaluation document.

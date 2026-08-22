@@ -25,11 +25,21 @@ class GraphStore(Protocol):
         knowledge_base_id: str,
         entity_keys: Sequence[str],
         limit: int,
+        include_archived: bool = False,
     ) -> list[GraphChunk]:
         """Return chunks linked to the requested entities in one knowledge base."""
 
     async def close(self) -> None:
         """Release storage resources."""
+
+    async def update_document_lifecycle(
+        self,
+        *,
+        knowledge_base_id: str,
+        document_id: str,
+        lifecycle: str,
+    ) -> None:
+        """Update source availability without rebuilding graph entities."""
 
 class InMemoryGraphStore:
     """Small deterministic graph store used by unit tests."""
@@ -57,6 +67,7 @@ class InMemoryGraphStore:
         knowledge_base_id: str,
         entity_keys: Sequence[str],
         limit: int,
+        include_archived: bool = False,
     ) -> list[GraphChunk]:
         if not knowledge_base_id.strip():
             raise ValueError("Knowledge base ID cannot be empty.")
@@ -76,6 +87,8 @@ class InMemoryGraphStore:
             for chunk_id, chunk in self._chunks.items()
             if chunk.knowledge_base_id == knowledge_base_id
             and self._entity_keys_by_chunk[chunk_id] & requested_keys
+            and chunk.lifecycle != "draft"
+            and (include_archived or chunk.lifecycle != "archived")
         ]
         matched_chunks.sort(
             key=lambda chunk: (
@@ -88,3 +101,28 @@ class InMemoryGraphStore:
 
     async def close(self) -> None:
         return None
+
+    async def update_document_lifecycle(
+        self,
+        *,
+        knowledge_base_id: str,
+        document_id: str,
+        lifecycle: str,
+    ) -> None:
+        self._chunks = {
+            chunk_id: (
+                GraphChunk(
+                    chunk_id=chunk.chunk_id,
+                    document_id=chunk.document_id,
+                    knowledge_base_id=chunk.knowledge_base_id,
+                    source_name=chunk.source_name,
+                    chunk_index=chunk.chunk_index,
+                    text=chunk.text,
+                    lifecycle=lifecycle,
+                )
+                if chunk.knowledge_base_id == knowledge_base_id
+                and chunk.document_id == document_id
+                else chunk
+            )
+            for chunk_id, chunk in self._chunks.items()
+        }

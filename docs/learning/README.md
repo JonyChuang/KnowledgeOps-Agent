@@ -14,6 +14,7 @@
 | 6 | [员工工作台与个人工作项](phase-06-workbench.md) | 工作台聚合、全局搜索、通知、收藏和反馈 | 验证导航与个人数据展示 |
 | 7 | [登录、权限与数据隔离](phase-07-authentication.md) | Cookie 会话、角色授权、服务端数据范围 | 注册多个账号并切换角色 |
 | 8 | [React + TypeScript 前端迁移与交付](phase-08-frontend-and-delivery.md) | Vite、组件拆分、类型化接口、状态管理、镜像更新和排错 | 生产构建并验证主要业务闭环 |
+| 9 | [运行模式、镜像更新与离线测评](phase-09-runtime-and-evaluation.md) | Docker Compose 依赖、Vite 热更新、数据卷、模型调用与测评前置条件 | 启动完整系统，并完成一次检索测评 |
 
 ## 阅读与动手方式
 

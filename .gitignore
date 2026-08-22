@@ -14,7 +14,9 @@ venv/
 .DS_Store
 .pytest_cache/
 .tmp/
+.test-tmp/
 node_modules/
 .npm-cache/
 # Local SQLite files created by development and migration tests.
 *.db
+evaluation-results/

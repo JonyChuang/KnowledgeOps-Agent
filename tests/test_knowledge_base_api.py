@@ -78,6 +78,27 @@ def test_upload_document_and_query_status(client: TestClient):
     assert status_response.json()["source_name"] == "runbook.md"
 
 
+def test_archive_unindexed_document_updates_its_business_lifecycle(client: TestClient):
+    """Governance state is available before an asynchronous index task runs."""
+    knowledge_base = client.post(
+        "/api/v1/knowledge-bases",
+        json={"name": "Lifecycle API Handbook"},
+    ).json()
+    document = client.post(
+        f"/api/v1/knowledge-bases/{knowledge_base['id']}/documents",
+        json={"source_name": "retired-policy.md", "content": "Old process."},
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/documents/{document['id']}/lifecycle",
+        headers={"X-Actor": "policy-owner"},
+        json={"lifecycle": "archived"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["lifecycle"] == "archived"
+
+
 def test_upload_document_rejects_unknown_knowledge_base(client: TestClient):
     """Document ingestion must not create orphan rows."""
     response = client.post(
@@ -158,7 +179,14 @@ def test_search_knowledge_base_returns_citable_results(
             self.knowledge_base_id = ""
             self.closed = False
 
-        async def retrieve(self, query: str, *, knowledge_base_id: str, limit: int):
+        async def retrieve(
+            self,
+            query: str,
+            *,
+            knowledge_base_id: str,
+            limit: int,
+            include_archived: bool = False,
+        ):
             assert query == "How do I restart the API?"
             assert knowledge_base_id == self.knowledge_base_id
             assert limit == 3
@@ -213,6 +241,7 @@ def test_search_knowledge_base_returns_citable_results(
             "document_id": "document-1",
             "source_name": "runbook.md",
             "source_type": "markdown",
+            "lifecycle": "active",
             "chunk_index": 0,
             "start_char": 0,
             "end_char": 42,
@@ -251,6 +280,7 @@ def test_graph_search_knowledge_base_returns_related_chunks(
             knowledge_base_id: str,
             entity_keys: list[str],
             limit: int,
+            include_archived: bool = False,
         ) -> list[GraphChunk]:
             self.request = {
                 "knowledge_base_id": knowledge_base_id,

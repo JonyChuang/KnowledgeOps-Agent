@@ -11,6 +11,7 @@ KnowledgeOps Agent 是独立的企业知识库与工单协同项目，面向本�
 - [核心能力](#核心能力)
 - [技术栈](#技术栈)
 - [系统架构](#系统架构)
+- [运行模式与依赖关系](#运行模式与依赖关系)
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
   - [第 1 步：准备环境变量](#第-1-步准备环境变量)
@@ -25,6 +26,7 @@ KnowledgeOps Agent 是独立的企业知识库与工单协同项目，面向本�
 - [开发、测试与更新镜像](#开发测试与更新镜像)
 - [常见问题](#常见问题)
 - [学习路线](#学习路线)
+- [与 Comet 的关系](#与-comet-的关系)
 - [当前边界](#当前边界)
 
 ---
@@ -75,6 +77,69 @@ flowchart LR
 ```
 
 文档索引是异步链路：浏览器提交资料后，API 只保存原始数据并投递任务；Worker 在后台完成耗时计算。Agent 对话是在线链路：API 根据当前登录用户组装工具、调用 Chat 模型、执行受控工具并返回结果。
+
+## 运行模式与依赖关系
+
+项目有两种日常运行方式。首次演示、完整验收和普通使用应选择“完整 Docker 模式”；只修改 React 页面时可在完整 Docker 后端之上开启 Vite 热更新。Docker Desktop 必须处于运行状态，但不需要在 Docker Desktop 界面中逐个手动打开容器，执行 Compose 命令即可。
+
+| 服务 | 是否长期运行 | 对使用者的意义 |
+| --- | --- | --- |
+| `frontend` | 是 | Nginx 托管管理台，并将 `/api` 请求转发给 API；宿主机入口为 `http://localhost:8080`。 |
+| `api` | 是 | FastAPI 处理登录、知识库、Agent、工单等同步请求。 |
+| `worker` | 是 | Celery 后台执行文档解析、Embedding、向量/BM25/图谱索引。 |
+| `migrate` | 否，一次性任务 | 启动时执行 Alembic 数据库迁移；状态显示 `exited (0)` 代表成功，不是故障。 |
+| `postgres`、`redis` | 是 | 分别保存业务数据和承载异步任务队列。 |
+| `qdrant`、`elasticsearch`、`neo4j` | 是 | 分别提供向量检索、BM25 检索与图谱关联。 |
+
+完整依赖链是 `浏览器 -> frontend -> api -> 数据服务`，而索引链额外经过 `worker`。因此，能打开前端不代表资料已可检索；当文档仍为 `indexing` 时，重点检查 `worker` 与 Embedding 服务。
+
+### 完整 Docker 模式
+
+这是最接近最终交付形态的模式。首次启动或后端代码变更后，在项目根目录执行：
+
+```powershell
+docker build --tag knowledgeops-agent:local .
+docker compose up -d
+docker compose ps
+```
+
+随后访问 `http://localhost:8080`。每次日常关机或暂停时使用：
+
+```powershell
+docker compose stop
+```
+
+下次恢复使用：
+
+```powershell
+docker compose start
+docker compose ps
+```
+
+`docker compose down` 会移除容器和网络，但默认保留命名数据卷；`docker compose down -v` 会额外删除 PostgreSQL、Qdrant、Elasticsearch、Neo4j 等本地数据，除非明确要清空演示数据，否则不要执行。
+
+### 前端热更新模式
+
+修改 `knowledgeops/frontend/src/` 时，无需反复构建前端镜像。先保证完整 Docker 系统已运行，再在另一个 PowerShell 窗口执行：
+
+```powershell
+Set-Location knowledgeops/frontend
+npm ci
+npm run dev
+```
+
+打开 Vite 输出的 `http://127.0.0.1:5173`。开发服务器会把 `/api` 请求代理到 Docker 前端的 `http://localhost:8080`，因此仍会使用真实的 FastAPI、Cookie 登录和数据服务；保存 React/TypeScript 文件后页面会热更新。完成验证后按 `Ctrl + C` 停止 Vite，生产界面仍然是 `http://localhost:8080`。
+
+### 离线测评的最小依赖
+
+仅执行检索测评时，不必启动完整前端和 Worker，但 Qdrant、Elasticsearch 必须已经运行：
+
+```powershell
+docker compose up -d qdrant elasticsearch
+docker compose ps
+```
+
+随后再执行测评命令。使用 `docker compose run --rm --no-deps ...` 时，`--no-deps` 的含义是“不自动启动依赖”，不是“测评不需要依赖”。若测评包含多跳回答或 Agent 指标，还需要可用且余额充足的 Chat 模型；检索中的向量方法还需要可用的 Embedding 模型。
 
 ## 环境要求
 
@@ -292,6 +357,10 @@ docker compose up -d --force-recreate --no-deps frontend
 
 `npm ci` 只在本地前端开发或验证时需要；只运行 Docker Compose 时，Node 构建会在 Docker 的构建阶段完成。随后在浏览器按 `Ctrl + F5`。常规构建会复用缓存；不要为了普通代码修改使用 `--no-cache`。如确认不存在需要保留的旧镜像，可单独执行 `docker image prune -f` 清理悬空镜像，不要执行带 `--volumes` 的全局清理命令。
 
+### 只改页面时使用热更新
+
+若只是调整 React 页面、样式或交互，可使用“运行模式与依赖关系”中的 Vite 热更新流程。它不修改 Docker 镜像，适合连续调试。确认页面效果后，再执行本节的 `docker compose build frontend` 和前端容器重建，才会把改动交付到 `8080` 的生产式入口。
+
 ## 常见问题
 
 **Q：执行 `docker compose up -d` 后前端打不开？**
@@ -310,6 +379,18 @@ docker compose up -d --force-recreate --no-deps frontend
 
 检查 `CHAT_MODEL`、`CHAT_BASE_URL` 和 `CHAT_API_KEY`。若模型不支持 Function Calling，系统会尝试规则降级；要展示完整的工具选择能力，应使用支持 OpenAI Function Calling 协议的模型。
 
+**Q：离线测评提示 `No address associated with hostname`、`502` 或无法连接 Qdrant？**
+
+这通常表示 Qdrant 或 Elasticsearch 没有启动，或刚启动尚未就绪。先执行 `docker compose up -d qdrant elasticsearch`，再用 `docker compose ps` 确认两个容器运行。不要在带 `--no-deps` 的测评命令前省略这一步。
+
+**Q：测评或 Agent 出现 `402 Insufficient Balance`？**
+
+这是模型服务商返回的余额不足，不是 Docker、FastAPI 或 Qdrant 的错误。为对应的 Chat 模型账号充值或更换为有可用额度的模型后重新运行；纯 BM25 检索不调用 Embedding，但向量、混合检索和文档入库仍会调用 Embedding 模型。
+
+**Q：本地执行 `npm run dev` 后登录或 API 请求失败？**
+
+先确认 `docker compose up -d` 已启动，并从 Vite 提示的 `http://127.0.0.1:5173` 地址访问。不要直接在 `5173` 页面中配置远程 API 地址；项目的 Vite 代理会将同源 `/api` 请求转发到 Docker 的 `8080` 入口。
+
 **Q：为什么切换用户后看不到其他人的工单？**
 
 这是权限设计。工单、会话和个人工作项按当前登录用户隔离；服务台角色只能在自己的处理权限范围内查看队列。
@@ -326,8 +407,15 @@ docker compose up -d --force-recreate --no-deps frontend
 6. 员工工作台、搜索、通知与反馈
 7. 登录、权限与用户隔离
 8. 前端模块化、容器化与排错
+9. 运行模式、镜像更新与离线测评
 
 每个阶段都包含目标、设计取舍、关键文件、验证步骤、常见错误和面试表达；原始逐次开发日志仍保留在 `docs/` 中供追溯。
+
+## 与 Comet 的关系
+
+本项目可以参考 Comet 一类企业 AI 工作台的产品体验，例如知识库导入、对话式问答、工作项协同和评测闭环；但 KnowledgeOps 是独立实现，接口、数据模型、部署文件和运行依赖均以本仓库为准。
+
+因此，两者的“如何启动”不能直接等同。KnowledgeOps 已明确采用 Docker Compose 编排 React/Nginx、FastAPI、Celery、PostgreSQL、Redis、Qdrant、Elasticsearch 和 Neo4j；Comet 网站公开页面能说明其产品功能，却不能证明其内部一定使用相同架构。面试中应准确表述为“参考了企业 AI 工作台的交互与业务闭环，再独立实现了本项目的技术方案”。
 
 ## 当前边界
 

@@ -161,6 +161,7 @@ class DocumentIndexingService:
                         "document_id": document.id,
                         "source_name": document.source_name,
                         "source_type": document.source_type,
+                        "document_lifecycle": document.lifecycle.value,
                         "chunk_index": chunk.chunk_index,
                         "start_char": chunk.start_char,
                         "end_char": chunk.end_char,
@@ -191,6 +192,7 @@ class DocumentIndexingService:
                         source_name=document.source_name,
                         chunk_index=stored_chunk.chunk_index,
                         text=stored_chunk.text,
+                        lifecycle=document.lifecycle.value,
                     )
                     entities = self.entity_extractor.extract_entities(
                         stored_chunk.text

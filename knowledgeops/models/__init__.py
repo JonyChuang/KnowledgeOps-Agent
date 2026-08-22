@@ -12,7 +12,7 @@ from .engagement import (
     RecentVisit,
     WorkspaceItemType,
 )
-from .knowledge import Document, DocumentStatus, KnowledgeBase
+from .knowledge import Document, DocumentLifecycle, DocumentStatus, KnowledgeBase
 from .notification import Notification, NotificationType
 from .ticket import (
     Ticket,
@@ -35,6 +35,7 @@ __all__ = [
     "Base",
     "Document",
     "DocumentChunk",
+    "DocumentLifecycle",
     "DocumentStatus",
     "Favorite",
     "KnowledgeBase",

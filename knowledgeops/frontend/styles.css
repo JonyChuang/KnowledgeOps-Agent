@@ -1436,7 +1436,8 @@ main.content {
   gap: 8px;
 }
 
-.knowledge-document-dropzone.is-dragging {
+.knowledge-document-dropzone.is-dragging,
+.knowledge-detail.is-dragging .knowledge-document-dropzone {
   border-style: solid;
   border-color: var(--blue);
   background: #eaf2ff;

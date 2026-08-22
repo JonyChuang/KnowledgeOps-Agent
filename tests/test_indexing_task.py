@@ -28,10 +28,14 @@ def test_build_qdrant_vector_store_reads_settings(monkeypatch):
             *,
             url: str,
             api_key: str | None = None,
+            headers: dict[str, str] | None = None,
+            trust_env: bool = False,
         ) -> None:
             # Capture configuration without creating a real network client.
             captured["url"] = url
             captured["api_key"] = api_key
+            captured["headers"] = headers
+            captured["trust_env"] = trust_env
 
     monkeypatch.setattr(
         "knowledgeops.tasks.indexing.AsyncQdrantClient",
@@ -51,6 +55,7 @@ def test_build_qdrant_vector_store_reads_settings(monkeypatch):
     assert vector_store.collection_name == "task_test_chunks"
     assert vector_store.dimensions == 16
     assert captured["api_key"] == "unit-test-qdrant-key"
+    assert captured["headers"] == {"Accept-Encoding": "identity"}
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..models import DocumentStatus
+from ..models import DocumentLifecycle, DocumentStatus
 
 
 class KnowledgeBaseCreate(BaseModel):
@@ -36,6 +36,7 @@ class TextDocumentCreate(BaseModel):
     source_name: str = Field(min_length=1, max_length=255)
     content: str = Field(min_length=1, max_length=2_000_000)
     source_type: str = Field(default="text", max_length=32)
+    lifecycle: DocumentLifecycle = DocumentLifecycle.ACTIVE
 
 
 class WebPageImportCreate(BaseModel):
@@ -43,6 +44,7 @@ class WebPageImportCreate(BaseModel):
 
     url: str = Field(min_length=1, max_length=2_048)
     source_name: str | None = Field(default=None, min_length=1, max_length=255)
+    lifecycle: DocumentLifecycle = DocumentLifecycle.ACTIVE
 
 class DocumentRead(BaseModel):
     """Document metadata and lifecycle state returned to management clients."""
@@ -54,6 +56,7 @@ class DocumentRead(BaseModel):
     source_name: str
     source_type: str
     status: DocumentStatus
+    lifecycle: DocumentLifecycle
     chunk_count: int
     error_message: str | None
     created_at: datetime
@@ -68,11 +71,18 @@ class DocumentIndexTaskRead(BaseModel):
     status: Literal["queued"] = "queued"
 
 
+class DocumentLifecycleUpdate(BaseModel):
+    """Change whether an indexed document may answer normal searches."""
+
+    lifecycle: DocumentLifecycle
+
+
 class SearchRequest(BaseModel):
     """Validated semantic-search input for one knowledge base."""
 
     query: str = Field(min_length=1, max_length=4_000)
     limit: int = Field(default=5, ge=1, le=20)
+    include_archived: bool = False
 
 
 class SearchResultRead(BaseModel):
@@ -84,6 +94,7 @@ class SearchResultRead(BaseModel):
     document_id: str
     source_name: str
     source_type: str
+    lifecycle: DocumentLifecycle
     chunk_index: int
     start_char: int
     end_char: int

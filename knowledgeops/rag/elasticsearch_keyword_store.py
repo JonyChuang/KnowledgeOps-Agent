@@ -13,6 +13,7 @@ _INDEX_MAPPINGS: dict[str, Any] = {
         "document_id": {"type": "keyword"},
         "source_name": {"type": "keyword"},
         "source_type": {"type": "keyword"},
+        "document_lifecycle": {"type": "keyword"},
         "chunk_index": {"type": "integer"},
         "start_char": {"type": "integer"},
         "end_char": {"type": "integer"},
@@ -68,6 +69,7 @@ class ElasticsearchKeywordStore:
         *,
         knowledge_base_id: str,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[KeywordSearchResult]:
         """Return BM25-ranked Chunk matches from one knowledge base."""
         clean_query = query.strip()
@@ -98,6 +100,17 @@ class ElasticsearchKeywordStore:
                             }
                         }
                     ],
+                    "must_not": (
+                        []
+                        if include_archived
+                        else [
+                            {
+                                "terms": {
+                                    "document_lifecycle": ["archived", "draft"],
+                                }
+                            }
+                        ]
+                    ),
                 }
             },
             size=limit,
@@ -114,6 +127,33 @@ class ElasticsearchKeywordStore:
             )
             for hit in hits
         ]
+
+    async def update_document_lifecycle(
+        self,
+        *,
+        knowledge_base_id: str,
+        document_id: str,
+        lifecycle: str,
+    ) -> None:
+        """Update chunk metadata without replacing the BM25 document text."""
+        await self.client.update_by_query(
+            index=self.index_name,
+            query={
+                "bool": {
+                    "filter": [
+                        {"term": {"knowledge_base_id": knowledge_base_id}},
+                        {"term": {"document_id": document_id}},
+                    ]
+                }
+            },
+            script={
+                "source": "ctx._source.document_lifecycle = params.lifecycle",
+                "lang": "painless",
+                "params": {"lifecycle": lifecycle},
+            },
+            conflicts="proceed",
+            refresh=True,
+        )
 
     async def close(self) -> None:
         """Release the Elasticsearch client connection."""

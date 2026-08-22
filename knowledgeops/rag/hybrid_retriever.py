@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .fusion import FusedCandidate, reciprocal_rank_fusion
 from .hybrid import keyword_candidates, vector_candidates
 from .keyword_store import KeywordStore
+from .query_planning import EvidenceFacet, build_multi_source_query_plan
 from .reranker import Reranker
 from .retriever import SemanticRetriever
 
@@ -25,6 +26,7 @@ class HybridRetrievedChunk:
     start_char: int
     end_char: int
     text: str
+    lifecycle: str = "active"
     rerank_score: float | None = None
 
 
@@ -38,7 +40,8 @@ class HybridRetriever:
         keyword_store: KeywordStore,
         rrf_k: int = 60,
         reranker: Reranker | None = None,
-        rerank_candidate_limit: int = 20,
+        candidate_limit: int = 20,
+        max_chunks_per_document: int = 2,
     ) -> None:
         if rrf_k < 1:
             raise ValueError("RRF constant k must be greater than zero.")
@@ -47,16 +50,20 @@ class HybridRetriever:
         self.keyword_store = keyword_store
         self.rrf_k = rrf_k
         self.reranker = reranker
-        self.rerank_candidate_limit = rerank_candidate_limit
+        self.candidate_limit = candidate_limit
+        self.max_chunks_per_document = max_chunks_per_document
 
-        if rerank_candidate_limit < 1:
-            raise ValueError("Rerank candidate limit must be greater than zero.")
+        if candidate_limit < 1:
+            raise ValueError("Candidate limit must be greater than zero.")
+        if max_chunks_per_document < 1:
+            raise ValueError("Maximum chunks per document must be greater than zero.")
     async def retrieve(
         self,
         query: str,
         *,
         knowledge_base_id: str,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[HybridRetrievedChunk]:
         """Return fused, citable chunks from one knowledge base."""
         clean_query = query.strip()
@@ -69,56 +76,130 @@ class HybridRetriever:
         if limit < 1:
             raise ValueError("Search limit must be greater than zero.")
 
-        candidate_limit = (
-            max(limit, self.rerank_candidate_limit)
-            if self.reranker is not None
-            else limit
-        )
-
-        vector_results, keyword_results = await asyncio.gather(
-            self.semantic_retriever.retrieve_vector_results(
-                clean_query,
+        plan = build_multi_source_query_plan(clean_query)
+        candidate_limit = max(limit, self.candidate_limit)
+        recalled = await asyncio.gather(
+            self._retrieve_candidates(
+                plan.primary_query,
                 knowledge_base_id=knowledge_base_id,
-                limit=candidate_limit
+                include_archived=include_archived,
+                candidate_limit=candidate_limit,
             ),
-            self.keyword_store.search(
-                clean_query,
-                knowledge_base_id=knowledge_base_id,
-                limit=candidate_limit
+            *(
+                self._retrieve_candidates(
+                    facet_query,
+                    knowledge_base_id=knowledge_base_id,
+                    include_archived=include_archived,
+                    candidate_limit=candidate_limit,
+                )
+                for _facet, facet_query in plan.facet_queries
             ),
         )
+        primary_candidates = recalled[0]
+        if not plan.is_multi_source:
+            return self._select_source_diverse(primary_candidates, limit=limit)
 
-        fused_results = reciprocal_rank_fusion(
-            [
-                vector_candidates(
-                    vector_results,
-                    knowledge_base_id=knowledge_base_id,
-                ),
-                keyword_candidates(
-                    keyword_results,
-                    knowledge_base_id=knowledge_base_id,
-                ),
-            ],
-            k=self.rrf_k,
-            limit=candidate_limit
-        )
-
-        candidates = [
-            self._to_hybrid_chunk(
-                candidate,
-                knowledge_base_id=knowledge_base_id,
+        facet_candidates = tuple(
+            (facet, candidates)
+            for (facet, _query), candidates in zip(
+                plan.facet_queries,
+                recalled[1:],
+                strict=True,
             )
-            for candidate in fused_results
-        ]
-
-        if self.reranker is None:
-            return candidates[:limit]
-
-        return await self.reranker.rerank(
-            clean_query,
-            candidates,
+        )
+        candidates = self._prioritize_evidence_coverage(
+            primary_candidates,
+            facet_candidates,
             limit=limit,
         )
+        return self._select_source_diverse(candidates, limit=limit)
+
+    async def _retrieve_candidates(
+        self,
+        query: str,
+        *,
+        knowledge_base_id: str,
+        include_archived: bool,
+        candidate_limit: int,
+    ) -> list[HybridRetrievedChunk]:
+        """Recall and rank a candidate pool for one focused evidence query."""
+        vector_results, keyword_results = await asyncio.gather(
+            self.semantic_retriever.retrieve_vector_results(
+                query,
+                knowledge_base_id=knowledge_base_id,
+                limit=candidate_limit,
+                include_archived=include_archived,
+            ),
+            self.keyword_store.search(
+                query,
+                knowledge_base_id=knowledge_base_id,
+                limit=candidate_limit,
+                include_archived=include_archived,
+            ),
+        )
+        fused_results = reciprocal_rank_fusion(
+            [
+                vector_candidates(vector_results, knowledge_base_id=knowledge_base_id),
+                keyword_candidates(keyword_results, knowledge_base_id=knowledge_base_id),
+            ],
+            k=self.rrf_k,
+            limit=candidate_limit,
+        )
+        candidates = [
+            self._to_hybrid_chunk(candidate, knowledge_base_id=knowledge_base_id)
+            for candidate in fused_results
+        ]
+        searchable = [
+            candidate
+            for candidate in candidates
+            if self._is_searchable(candidate.lifecycle, include_archived)
+        ]
+        if self.reranker is None:
+            return searchable
+        return await self.reranker.rerank(
+            query,
+            searchable,
+            limit=candidate_limit,
+        )
+
+    def _prioritize_evidence_coverage(
+        self,
+        primary_candidates: list[HybridRetrievedChunk],
+        facet_candidates: tuple[tuple[EvidenceFacet, list[HybridRetrievedChunk]], ...],
+        *,
+        limit: int,
+    ) -> list[HybridRetrievedChunk]:
+        """Seed the final ranking with one distinct source for each requested role."""
+        prioritized: list[HybridRetrievedChunk] = []
+        selected_document_ids: set[str] = set()
+        selected_chunk_ids: set[str] = set()
+
+        for _facet, candidates in facet_candidates:
+            candidate = next(
+                (
+                    item
+                    for item in candidates
+                    if item.document_id not in selected_document_ids
+                ),
+                None,
+            )
+            if candidate is None:
+                continue
+            prioritized.append(candidate)
+            selected_document_ids.add(candidate.document_id)
+            selected_chunk_ids.add(candidate.chunk_id)
+            if len(prioritized) == limit:
+                return prioritized
+
+        for candidate in (
+            *primary_candidates,
+            *(item for _facet, items in facet_candidates for item in items),
+        ):
+            if candidate.chunk_id in selected_chunk_ids:
+                continue
+            prioritized.append(candidate)
+            selected_chunk_ids.add(candidate.chunk_id)
+        return prioritized
 
     async def close(self) -> None:
         """Release clients created for one hybrid search request."""
@@ -171,4 +252,33 @@ class HybridRetriever:
             start_char=int(payload["start_char"]),
             end_char=int(payload["end_char"]),
             text=str(payload["text"]),
+            # Existing indexed payloads predate document governance. Treating
+            # them as active keeps upgrades backward compatible.
+            lifecycle=str(payload.get("document_lifecycle", "active")),
         )
+
+    @staticmethod
+    def _is_searchable(lifecycle: str, include_archived: bool) -> bool:
+        normalized = lifecycle.strip().lower()
+        if normalized == "draft":
+            return False
+        return include_archived or normalized != "archived"
+
+    def _select_source_diverse(
+        self,
+        candidates: list[HybridRetrievedChunk],
+        *,
+        limit: int,
+    ) -> list[HybridRetrievedChunk]:
+        """Keep adjacent chunks from one source from crowding out evidence."""
+        selected: list[HybridRetrievedChunk] = []
+        counts_by_document: dict[str, int] = {}
+        for candidate in candidates:
+            count = counts_by_document.get(candidate.document_id, 0)
+            if count >= self.max_chunks_per_document:
+                continue
+            selected.append(candidate)
+            counts_by_document[candidate.document_id] = count + 1
+            if len(selected) == limit:
+                break
+        return selected

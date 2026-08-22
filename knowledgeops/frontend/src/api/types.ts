@@ -46,6 +46,7 @@ export interface KnowledgeDocument {
   source_name: string;
   source_type: string;
   status: "uploaded" | "indexing" | "ready" | "failed";
+  lifecycle: "draft" | "active" | "archived";
   chunk_count: number;
   error_message: string | null;
   created_at: string;

@@ -34,6 +34,7 @@ class FakeKeywordStore:
         *,
         knowledge_base_id: str,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[KeywordSearchResult]:
         """Return candidates matching query terms in one knowledge base."""
         clean_query = query.strip()
@@ -52,6 +53,9 @@ class FakeKeywordStore:
         for result in self.results:
             result_kb_id = result.payload.get("knowledge_base_id")
             if str(result_kb_id) != knowledge_base_id:
+                continue
+            lifecycle = str(result.payload.get("document_lifecycle", "active")).lower()
+            if lifecycle == "draft" or (lifecycle == "archived" and not include_archived):
                 continue
 
             text = str(result.payload.get("text", ""))
@@ -74,6 +78,27 @@ class FakeKeywordStore:
 
     async def close(self) -> None:
         """Match the production store lifecycle without holding resources."""
+
+    async def update_document_lifecycle(
+        self,
+        *,
+        knowledge_base_id: str,
+        document_id: str,
+        lifecycle: str,
+    ) -> None:
+        self.results = [
+            KeywordSearchResult(
+                chunk_id=result.chunk_id,
+                score=result.score,
+                payload=(
+                    {**result.payload, "document_lifecycle": lifecycle}
+                    if result.payload.get("knowledge_base_id") == knowledge_base_id
+                    and result.payload.get("document_id") == document_id
+                    else result.payload
+                ),
+            )
+            for result in self.results
+        ]
 
 
 def _tokenize(text: str) -> set[str]:

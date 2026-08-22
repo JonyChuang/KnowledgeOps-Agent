@@ -24,6 +24,7 @@ from .state import (
     ConfirmationStatus,
     PendingAction,
 )
+from .ticket_intake import assess_ticket_intake
 from .ticket_tools import TicketCreationTool, TicketQueryTool
 from .tools import KnowledgeBaseScopeTool, KnowledgeSearchTool
 
@@ -133,6 +134,10 @@ def build_agent_graph(
         return {"answer": answer}
 
     async def answer_with_function_calls(state: AgentState) -> dict[str, object]:
+        intake = assess_ticket_intake(_ticket_intake_messages(state))
+        if intake.requires_clarification:
+            return {"answer": intake.clarification_message}
+
         messages = build_function_call_messages(
             user_message=state.user_message,
             conversation_history=state.conversation_history,
@@ -257,6 +262,9 @@ def build_agent_graph(
             return ({"ticket": ticket_detail(ticket)}, [], [ticket.id], None)
 
         if call.name == "prepare_ticket_draft":
+            intake = assess_ticket_intake(_ticket_intake_messages(state))
+            if intake.requires_clarification:
+                return ({"error": intake.clarification_message}, [], [], None)
             try:
                 pending_action = ticket_draft_from_arguments(arguments)
             except ValueError as error:
@@ -364,6 +372,9 @@ def build_agent_graph(
         }
 
     async def prepare_ticket(state: AgentState) -> dict[str, object]:
+        intake = assess_ticket_intake(_ticket_intake_messages(state))
+        if intake.requires_clarification:
+            return {"answer": intake.clarification_message}
         message = state.user_message.strip()
         return {
             "pending_action": PendingAction(
@@ -425,6 +436,14 @@ def build_agent_graph(
 
         return "end"
 
+    def choose_after_ticket_preparation(state: AgentState) -> str:
+        if (
+            state.pending_action is not None
+            and state.confirmation_status == ConfirmationStatus.PENDING
+        ):
+            return "confirm_ticket"
+        return "end"
+
     def choose_after_function_calling(state: AgentState) -> str:
         if state.confirmation_status == ConfirmationStatus.PENDING:
             return "confirm_ticket"
@@ -461,7 +480,14 @@ def build_agent_graph(
     )
     graph.add_edge("knowledge_qa", END)
     graph.add_edge("ticket_query", END)
-    graph.add_edge("prepare_ticket", "confirm_ticket")
+    graph.add_conditional_edges(
+        "prepare_ticket",
+        choose_after_ticket_preparation,
+        {
+            "confirm_ticket": "confirm_ticket",
+            "end": END,
+        },
+    )
     graph.add_conditional_edges(
         "confirm_ticket",
         choose_after_confirmation,
@@ -476,3 +502,11 @@ def build_agent_graph(
         checkpointer if checkpointer is not None else MemorySaver()
     )
     return graph.compile(checkpointer=active_checkpointer)
+
+
+def _ticket_intake_messages(state: AgentState) -> list[str]:
+    """Use employee turns only; assistant text must not supply ticket facts."""
+    return [
+        *(message.content for message in state.conversation_history if message.role == "user"),
+        state.user_message,
+    ]

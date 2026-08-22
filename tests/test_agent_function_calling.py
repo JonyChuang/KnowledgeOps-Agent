@@ -11,6 +11,7 @@ from knowledgeops.agents.function_calling import (
     AgentFunctionCall,
     AgentModelResponse,
     OpenAIFunctionCallingAgent,
+    TicketIntakeGuardedFunctionCallingAgent,
 )
 from knowledgeops.agents.state import AgentCitation, AgentIntent, AgentState, ConfirmationStatus
 from knowledgeops.agents.workflow import AgentDependencies, build_agent_graph
@@ -240,7 +241,13 @@ async def test_function_calling_ticket_draft_still_requires_human_confirmation()
     config = {"configurable": {"thread_id": "function-ticket-draft-1"}}
 
     interrupted = await graph.ainvoke(
-        AgentState(actor="alice", user_message="帮我提交 VPN 报修。").model_dump(
+        AgentState(
+            actor="alice",
+            user_message=(
+                "VPN client shows error 619 on Windows 11 after restart, for 30 "
+                "minutes, impact my remote work. Please create a support ticket."
+            ),
+        ).model_dump(
             mode="json"
         ),
         config=config,
@@ -286,3 +293,64 @@ async def test_openai_function_agent_sends_declared_tools_and_parses_tool_calls(
     assert request["tool_choice"] == "auto"
     assert request["parallel_tool_calls"] is False
 
+
+@pytest.mark.asyncio
+async def test_ticket_intake_guard_asks_for_context_without_calling_the_model():
+    delegate = FakeFunctionCallingAgent(
+        [AgentModelResponse(content="unused", tool_calls=[])]
+    )
+    agent = TicketIntakeGuardedFunctionCallingAgent(delegate)
+
+    response = await agent.complete(
+        [
+            {
+                "role": "user",
+                "content": "VPN connection failure 影响我的工作，请帮我创建支持工单。",
+            }
+        ]
+    )
+
+    assert response.tool_calls == []
+    assert "补充" in (response.content or "")
+    assert delegate.calls == []
+
+
+@pytest.mark.asyncio
+async def test_function_workflow_blocks_an_incomplete_ticket_before_tool_selection():
+    responses = [
+        AgentModelResponse(
+            content=None,
+            tool_calls=[
+                AgentFunctionCall(
+                    id="call-draft",
+                    name="prepare_ticket_draft",
+                    arguments_json=json.dumps(
+                        {
+                            "title": "VPN 无法连接",
+                            "description": "虚构的模型补全内容。",
+                            "priority": "high",
+                            "category": "network",
+                            "impact": "single_user",
+                        }
+                    ),
+                )
+            ],
+        )
+    ]
+    dependencies, _, _, _, ticket_creation, function_agent = build_dependencies(responses)
+    graph = build_agent_graph(dependencies)
+
+    result = await graph.ainvoke(
+        AgentState(
+            actor="alice",
+            user_message="VPN connection failure 影响我的工作，请帮我创建支持工单。",
+        ).model_dump(mode="json"),
+        config={"configurable": {"thread_id": "function-ticket-intake-1"}},
+    )
+    state = AgentState.model_validate(result)
+
+    assert state.confirmation_status == ConfirmationStatus.NOT_REQUIRED
+    assert state.pending_action is None
+    assert "补充" in (state.answer or "")
+    assert function_agent.calls == []
+    assert ticket_creation.states == []

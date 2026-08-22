@@ -48,7 +48,8 @@ class Neo4jGraphStore:
             chunk.knowledge_base_id = $chunk.knowledge_base_id,
             chunk.source_name = $chunk.source_name,
             chunk.chunk_index = $chunk.chunk_index,
-            chunk.text = $chunk.text
+            chunk.text = $chunk.text,
+            chunk.document_lifecycle = $chunk.lifecycle
         WITH chunk
         OPTIONAL MATCH (chunk)-[mention:MENTIONS]->(:GraphEntity)
         DELETE mention
@@ -71,6 +72,7 @@ class Neo4jGraphStore:
             "source_name": chunk.source_name,
             "chunk_index": chunk.chunk_index,
             "text": chunk.text,
+            "lifecycle": chunk.lifecycle,
         }
         entity_payloads = [
             {
@@ -94,6 +96,7 @@ class Neo4jGraphStore:
         knowledge_base_id: str,
         entity_keys: Sequence[str],
         limit: int,
+        include_archived: bool = False,
     ) -> list[GraphChunk]:
         """Find chunks connected to entities within the requested knowledge base."""
         if not knowledge_base_id.strip():
@@ -114,13 +117,16 @@ class Neo4jGraphStore:
         WHERE chunk.knowledge_base_id = $knowledge_base_id
           AND entity.knowledge_base_id = $knowledge_base_id
           AND entity.key IN $entity_keys
+          AND coalesce(chunk.document_lifecycle, 'active') <> 'draft'
+          AND ($include_archived OR coalesce(chunk.document_lifecycle, 'active') <> 'archived')
         RETURN DISTINCT
             chunk.chunk_id AS chunk_id,
             chunk.document_id AS document_id,
             chunk.knowledge_base_id AS knowledge_base_id,
             chunk.source_name AS source_name,
             chunk.chunk_index AS chunk_index,
-            chunk.text AS text
+            chunk.text AS text,
+            coalesce(chunk.document_lifecycle, 'active') AS lifecycle
         ORDER BY document_id, chunk_index, chunk_id
         LIMIT $limit
         """
@@ -131,6 +137,7 @@ class Neo4jGraphStore:
                 knowledge_base_id=knowledge_base_id,
                 entity_keys=normalized_keys,
                 limit=limit,
+                include_archived=include_archived,
             )
             records = await result.data()
 
@@ -142,9 +149,33 @@ class Neo4jGraphStore:
                 source_name=record["source_name"],
                 chunk_index=record["chunk_index"],
                 text=record["text"],
+                lifecycle=record["lifecycle"],
             )
             for record in records
         ]
+
+    async def update_document_lifecycle(
+        self,
+        *,
+        knowledge_base_id: str,
+        document_id: str,
+        lifecycle: str,
+    ) -> None:
+        query = """
+        MATCH (chunk:GraphChunk {
+            knowledge_base_id: $knowledge_base_id,
+            document_id: $document_id
+        })
+        SET chunk.document_lifecycle = $lifecycle
+        """
+        async with self._driver.session(database=self._database) as session:
+            result = await session.run(
+                query,
+                knowledge_base_id=knowledge_base_id,
+                document_id=document_id,
+                lifecycle=lifecycle,
+            )
+            await result.consume()
 
     async def close(self) -> None:
         """Close the Neo4j driver owned by this store."""

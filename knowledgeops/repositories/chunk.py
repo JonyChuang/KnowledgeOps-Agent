@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Document, DocumentChunk, DocumentStatus
+from ..models import Document, DocumentChunk, DocumentLifecycle, DocumentStatus
 
 
 @dataclass(frozen=True)
@@ -72,6 +72,7 @@ class DocumentChunkRepository:
             .where(
                 Document.knowledge_base_id == knowledge_base_id,
                 Document.status == DocumentStatus.READY,
+                Document.lifecycle == DocumentLifecycle.ACTIVE,
             )
             .order_by(Document.updated_at.desc(), DocumentChunk.chunk_index)
             .limit(limit)

@@ -38,3 +38,4 @@ class GraphChunk:
     source_name: str
     chunk_index: int
     text: str
+    lifecycle: str = "active"

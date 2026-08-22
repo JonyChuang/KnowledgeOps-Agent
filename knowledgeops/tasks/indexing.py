@@ -1,8 +1,8 @@
 """Runtime task entry point for document embedding and Qdrant indexing."""
 
 from collections.abc import Callable
-from openai import AsyncOpenAI
 
+from openai import AsyncOpenAI
 from qdrant_client import AsyncQdrantClient
 
 from ..config import Settings
@@ -55,6 +55,11 @@ def build_qdrant_vector_store(settings: Settings) -> QdrantVectorStore:
     client = AsyncQdrantClient(
         url=settings.qdrant_url,
         api_key=api_key,
+        # Some Windows httpx/zstd combinations fail while decoding a tiny
+        # local Qdrant response. The collection API is small, so disabling
+        # content compression is a reliable and negligible-cost workaround.
+        headers={"Accept-Encoding": "identity"},
+        trust_env=settings.qdrant_trust_env,
     )
     return QdrantVectorStore(
         client,
@@ -134,6 +139,8 @@ def build_hybrid_retriever(settings: Settings) -> HybridRetriever:
         semantic_retriever=build_semantic_retriever(settings),
         keyword_store=build_elasticsearch_keyword_store(settings),
         reranker=TokenOverlapReranker(),
+        candidate_limit=settings.hybrid_candidate_limit,
+        max_chunks_per_document=settings.hybrid_max_chunks_per_document,
     )
 
 async def index_document(

@@ -25,7 +25,12 @@ def test_agent_turn_requires_owner_confirmation_before_creating_ticket(
     initial = client.post(
         "/api/v1/agent/turns",
         headers={"X-Actor": "alice"},
-        json={"user_message": "请帮我创建一个 VPN 无法连接的工单"},
+        json={
+            "user_message": (
+                "VPN 在 Windows 11 客户端报错 619，重启后仍失败，"
+                "已持续三十分钟，只影响我本人，请创建工单。"
+            )
+        },
     )
 
     assert initial.status_code == 201
@@ -84,7 +89,12 @@ def test_agent_turn_can_cancel_ticket_creation(client: TestClient) -> None:
     initial = client.post(
         "/api/v1/agent/turns",
         headers={"X-Actor": "alice"},
-        json={"user_message": "请帮我创建一个 VPN 无法连接的工单"},
+        json={
+            "user_message": (
+                "VPN 在 Windows 11 客户端报错 619，重启后仍失败，"
+                "已持续三十分钟，只影响我本人，请创建工单。"
+            )
+        },
     )
 
     thread_id = initial.json()["thread_id"]

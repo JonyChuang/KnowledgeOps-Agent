@@ -7,7 +7,9 @@ import hashlib
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import AuditEvent, Document, DocumentStatus, KnowledgeBase
+from ..graphrag import GraphStore
+from ..models import AuditEvent, Document, DocumentLifecycle, DocumentStatus, KnowledgeBase
+from ..rag import KeywordStore, QdrantVectorStore
 from ..repositories import (
     AuditEventRepository,
     DocumentRepository,
@@ -89,6 +91,7 @@ class KnowledgeService:
                     content=payload.content,
                     checksum=checksum,
                     status=DocumentStatus.UPLOADED,
+                    lifecycle=payload.lifecycle,
                 )
             )
             await self.audit_events.create(
@@ -101,6 +104,7 @@ class KnowledgeService:
                     payload={
                         "source_name": document.source_name,
                         "source_type": document.source_type,
+                        "lifecycle": document.lifecycle.value,
                         "checksum": checksum,
                     },
                 )
@@ -125,6 +129,62 @@ class KnowledgeService:
         document = await self.documents.get(document_id)
         if document is None:
             raise ResourceNotFoundError("Document not found.")
+        return document
+
+    async def update_document_lifecycle(
+        self,
+        document_id: str,
+        lifecycle: DocumentLifecycle,
+        *,
+        actor: str = "anonymous",
+        vector_store: QdrantVectorStore | None = None,
+        keyword_store: KeywordStore | None = None,
+        graph_store: GraphStore | None = None,
+    ) -> Document:
+        """Publish, archive, or retain a draft without recreating chunks."""
+        document = await self.get_document(document_id)
+        if document.lifecycle is lifecycle:
+            return document
+
+        if document.status is DocumentStatus.READY:
+            if vector_store is None or keyword_store is None:
+                raise RuntimeError(
+                    "Indexed documents require vector and keyword stores for lifecycle updates."
+                )
+            await vector_store.update_document_lifecycle(
+                knowledge_base_id=document.knowledge_base_id,
+                document_id=document.id,
+                lifecycle=lifecycle.value,
+            )
+            await keyword_store.update_document_lifecycle(
+                knowledge_base_id=document.knowledge_base_id,
+                document_id=document.id,
+                lifecycle=lifecycle.value,
+            )
+            if graph_store is not None:
+                await graph_store.update_document_lifecycle(
+                    knowledge_base_id=document.knowledge_base_id,
+                    document_id=document.id,
+                    lifecycle=lifecycle.value,
+                )
+
+        previous_lifecycle = document.lifecycle
+        document.lifecycle = lifecycle
+        await self.audit_events.create(
+            AuditEvent(
+                event_type="document.lifecycle_changed",
+                actor=actor,
+                entity_type="document",
+                entity_id=document.id,
+                payload={
+                    "from": previous_lifecycle.value,
+                    "to": lifecycle.value,
+                    "index_status": document.status.value,
+                },
+            )
+        )
+        await self.session.commit()
+        await self.session.refresh(document)
         return document
 
     async def _require_knowledge_base(self, knowledge_base_id: str) -> KnowledgeBase:

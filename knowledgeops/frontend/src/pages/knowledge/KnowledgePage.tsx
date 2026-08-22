@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 
 import { api } from "../../api/client";
 import type { KnowledgeBase, KnowledgeDocument } from "../../api/types";
@@ -6,12 +6,24 @@ import { EmptyState, LoadingBlock, Modal, formatDate } from "../../components/ui
 import { useAppStore } from "../../store/app-store";
 
 type ImportMode = "text" | "file" | "web" | null;
+type ImportKind = Exclude<ImportMode, null>;
+
+interface ImportRequest {
+  mode: ImportKind;
+  initialFiles?: File[];
+}
 
 const statusLabels: Record<string, string> = {
   uploaded: "待索引",
   indexing: "索引中",
   ready: "已就绪",
   failed: "索引失败",
+};
+
+const lifecycleLabels: Record<KnowledgeDocument["lifecycle"], string> = {
+  draft: "草稿",
+  active: "生效中",
+  archived: "已归档",
 };
 
 export function KnowledgePage() {
@@ -26,7 +38,7 @@ export function KnowledgePage() {
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [createOpen, setCreateOpen] = useState(false);
-  const [importMode, setImportMode] = useState<ImportMode>(null);
+  const [importRequest, setImportRequest] = useState<ImportRequest | null>(null);
 
   const selected = useMemo(() => knowledgeBases.find((item) => item.id === selectedId) ?? null, [knowledgeBases, selectedId]);
 
@@ -89,7 +101,25 @@ export function KnowledgePage() {
     if (selected) await openKnowledgeBase(selected);
   };
 
+  const changeDocumentLifecycle = async (document: KnowledgeDocument) => {
+    const lifecycle = document.lifecycle === "active" ? "archived" : "active";
+    await api<KnowledgeDocument>(`/documents/${document.id}/lifecycle`, {
+      method: "PATCH",
+      body: JSON.stringify({ lifecycle }),
+    });
+    showNotice(lifecycle === "archived" ? "文档已归档。" : "文档已发布。", "success");
+    if (selected) await openKnowledgeBase(selected);
+  };
+
   if (loading) return <LoadingBlock label="正在加载知识库..." />;
+
+  const queueDocuments = async (uploadedDocuments: KnowledgeDocument[]) => {
+    for (const document of uploadedDocuments) {
+      await api(`/documents/${document.id}/index`, { method: "POST" });
+    }
+    showNotice(`已提交 ${uploadedDocuments.length} 份资料的索引任务。`, "success");
+    if (selected) await openKnowledgeBase(selected);
+  };
 
   return (
     <section id="knowledge-view" className="view is-active">
@@ -100,8 +130,9 @@ export function KnowledgePage() {
           error={error}
           onBack={() => { setSelectedId(null); setError(""); }}
           onRefresh={() => void openKnowledgeBase(selected)}
-          onImport={setImportMode}
+          onImport={(mode, initialFiles) => setImportRequest({ mode, initialFiles })}
           onQueue={queueDocument}
+          onLifecycleChange={changeDocumentLifecycle}
         />
       ) : (
         <div className="knowledge-catalog">
@@ -128,7 +159,7 @@ export function KnowledgePage() {
         </div>
       )}
       {createOpen && <CreateKnowledgeBaseModal onClose={() => setCreateOpen(false)} onSubmit={createKnowledgeBase} />}
-      {importMode && selected && <ImportModal mode={importMode} knowledgeBase={selected} onClose={() => setImportMode(null)} onUploaded={async (document) => { setImportMode(null); await queueDocument(document); }} />}
+      {importRequest && selected && <ImportModal mode={importRequest.mode} initialFiles={importRequest.initialFiles} knowledgeBase={selected} onClose={() => setImportRequest(null)} onUploaded={queueDocuments} />}
     </section>
   );
 }
@@ -137,18 +168,28 @@ function BookMark() {
   return <span className="knowledge-card-illustration" aria-hidden="true"><span /><span /><span /></span>;
 }
 
-function KnowledgeDetail({ knowledgeBase, documents, error, onBack, onRefresh, onImport, onQueue }: {
+function KnowledgeDetail({ knowledgeBase, documents, error, onBack, onRefresh, onImport, onQueue, onLifecycleChange }: {
   knowledgeBase: KnowledgeBase;
   documents: KnowledgeDocument[];
   error: string;
   onBack: () => void;
   onRefresh: () => void;
-  onImport: (mode: Exclude<ImportMode, null>) => void;
+  onImport: (mode: ImportKind, initialFiles?: File[]) => void;
   onQueue: (document: KnowledgeDocument) => Promise<void>;
+  onLifecycleChange: (document: KnowledgeDocument) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
   const shown = documents.filter((document) => document.source_name.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  return <div className="knowledge-detail">
+  const openDroppedFiles = (files: File[]) => {
+    if (files.length) onImport("file", files);
+  };
+  const handleDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setIsDragging(false);
+    openDroppedFiles(Array.from(event.dataTransfer.files));
+  };
+  return <div className={`knowledge-detail${isDragging ? " is-dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setIsDragging(true); }} onDragLeave={(event) => { if (event.currentTarget === event.target) setIsDragging(false); }} onDrop={handleDrop}>
     <header className="knowledge-detail-header">
       <button className="back-button" onClick={onBack}>返回知识库</button>
       <div className="knowledge-detail-title"><BookMark /><div><p className="knowledge-eyebrow">{knowledgeBase.department}</p><h1>{knowledgeBase.name}</h1><p>{knowledgeBase.description || "资料管理与检索范围。"}</p></div></div>
@@ -163,7 +204,7 @@ function KnowledgeDetail({ knowledgeBase, documents, error, onBack, onRefresh, o
     <div className="knowledge-document-list">
       {shown.length ? shown.map((document) => <article className="knowledge-document-item" key={document.id}>
         <div><h2>{document.source_name}</h2><p>{document.source_type} · {document.chunk_count} 个片段 · 更新于 {formatDate(document.updated_at)}</p>{document.error_message && <p className="is-error">{document.error_message}</p>}</div>
-        <div className="knowledge-document-item-meta"><span className={`document-status is-${document.status}`}>{statusLabels[document.status] || document.status}</span>{(document.status === "uploaded" || document.status === "failed") && <button className="secondary-action" onClick={() => void onQueue(document)}>重新索引</button>}</div>
+        <div className="knowledge-document-item-meta"><span className={`document-status is-${document.status}`}>{statusLabels[document.status] || document.status}</span><span className={`document-status is-${document.lifecycle}`}>{lifecycleLabels[document.lifecycle]}</span>{(document.status === "uploaded" || document.status === "failed") && <button className="secondary-action" onClick={() => void onQueue(document)}>重新索引</button>}<button className="secondary-action" onClick={() => void onLifecycleChange(document)}>{document.lifecycle === "active" ? "归档" : "发布"}</button></div>
       </article>) : <p className="knowledge-document-empty">{query ? "没有匹配的文档。" : "这个知识库还没有资料。"}</p>}
     </div>
     <button className="text-action" onClick={onRefresh}>刷新文档状态</button>
@@ -185,23 +226,39 @@ function CreateKnowledgeBaseModal({ onClose, onSubmit }: { onClose: () => void; 
   return <Modal title="新建知识库" onClose={onClose}><form className="react-form" onSubmit={submit}><label>名称<input value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={120} required /></label><label>部门<input value={department} onChange={(event) => setDepartment(event.target.value)} minLength={1} maxLength={80} required /></label><label>描述<textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} maxLength={4000} /></label>{error && <p className="form-message is-error">{error}</p>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={onClose}>取消</button><button className="primary-action" disabled={saving}>{saving ? "正在创建..." : "创建知识库"}</button></div></form></Modal>;
 }
 
-function ImportModal({ mode, knowledgeBase, onClose, onUploaded }: { mode: Exclude<ImportMode, null>; knowledgeBase: KnowledgeBase; onClose: () => void; onUploaded: (document: KnowledgeDocument) => Promise<void> }) {
+function ImportModal({ mode, initialFiles = [], knowledgeBase, onClose, onUploaded }: { mode: ImportKind; initialFiles?: File[]; knowledgeBase: KnowledgeBase; onClose: () => void; onUploaded: (documents: KnowledgeDocument[]) => Promise<void> }) {
   const [sourceName, setSourceName] = useState("");
   const [content, setContent] = useState("");
   const [url, setUrl] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>(initialFiles);
+  const file = files[0] ?? null;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (mode !== "file") return;
+    document.querySelector<HTMLInputElement>(".file-input input[type='file']")?.setAttribute("multiple", "");
+    setSourceName(files.length === 1 ? files[0].name : files.length ? `已选择 ${files.length} 个文件` : "");
+  }, [files, mode]);
   const onFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const nextFile = event.target.files?.[0] ?? null;
-    setFile(nextFile);
-    if (nextFile) setSourceName(nextFile.name);
+    const nextFiles = Array.from(event.target.files ?? []);
+    setFiles(nextFiles);
+    setSourceName(nextFiles.length === 1 ? nextFiles[0].name : nextFiles.length ? `已选择 ${nextFiles.length} 个文件` : "");
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
     setSaving(true);
     try {
+      if (mode === "file" && files.length > 1) {
+        const documents: KnowledgeDocument[] = [];
+        for (const selectedFile of files) {
+          const document = await api<KnowledgeDocument>(`/knowledge-bases/${knowledgeBase.id}/documents/upload?source_name=${encodeURIComponent(selectedFile.name)}`, { method: "POST", headers: { "Content-Type": selectedFile.type || "application/octet-stream" }, body: selectedFile });
+          documents.push(document);
+        }
+        await onUploaded(documents);
+        onClose();
+        return;
+      }
       let document: KnowledgeDocument;
       if (mode === "file") {
         if (!file) throw new Error("请选择要上传的文件。");
@@ -211,7 +268,8 @@ function ImportModal({ mode, knowledgeBase, onClose, onUploaded }: { mode: Exclu
       } else {
         document = await api<KnowledgeDocument>(`/knowledge-bases/${knowledgeBase.id}/documents`, { method: "POST", body: JSON.stringify({ source_name: sourceName, content }) });
       }
-      await onUploaded(document);
+      await onUploaded([document]);
+      onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "导入失败。");
     } finally {

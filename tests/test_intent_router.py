@@ -1,8 +1,8 @@
 import pytest
 
-from knowledgeops.agents.router import FallbackIntentRouter, KeywordIntentRouter
+from knowledgeops.agents.router import KeywordIntentRouter
 from knowledgeops.agents.state import AgentIntent
-
+from knowledgeops.agents.router import FallbackIntentRouter
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -26,24 +26,12 @@ async def test_router_classifies_supported_messages(
 
 
 @pytest.mark.asyncio
-async def test_router_sends_an_unsupported_message_to_general_chat() -> None:
+async def test_router_returns_none_for_an_unsupported_message() -> None:
     router = KeywordIntentRouter()
 
     result = await router.route("帮我处理一下")
 
-    assert result == AgentIntent.GENERAL_CHAT
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("message", ["你好", "您好！", "hello", "在吗？"])
-async def test_router_routes_greetings_to_bounded_general_chat(
-    message: str,
-) -> None:
-    router = KeywordIntentRouter()
-
-    result = await router.route(message)
-
-    assert result == AgentIntent.GENERAL_CHAT
+    assert result is None
 
 
 @pytest.mark.asyncio
@@ -89,3 +77,5 @@ async def test_fallback_router_prefers_llm_result() -> None:
     result = await router.route("随便一句不含关键词的话")
 
     assert result == AgentIntent.KNOWLEDGE_QA
+
+    

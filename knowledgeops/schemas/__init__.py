@@ -34,6 +34,7 @@ from .engagement import (
 )
 from .knowledge import (
     DocumentIndexTaskRead,
+    DocumentLifecycleUpdate,
     DocumentRead,
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
@@ -70,11 +71,11 @@ __all__ = [
     "AgentTurnCreate",
     "AgentTurnRead",
     "AuthenticatedUserRead",
-    "PasswordChangeCreate",
     "DashboardIndexSummary",
     "DashboardRead",
     "DashboardTicketSummary",
     "DocumentIndexTaskRead",
+    "DocumentLifecycleUpdate",
     "DocumentRead",
     "GlobalSearchItemRead",
     "GlobalSearchRead",
@@ -82,6 +83,7 @@ __all__ = [
     "KnowledgeBaseRead",
     "NotificationListRead",
     "NotificationRead",
+    "PasswordChangeCreate",
     "SearchRequest",
     "SearchResultRead",
     "TextDocumentCreate",

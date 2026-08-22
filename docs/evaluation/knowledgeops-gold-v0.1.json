@@ -1,0 +1,105 @@
+{
+  "schema_version": "knowledgeops-evaluation/v1",
+  "dataset_version": "v0.1",
+  "name": "KnowledgeOps 脱敏企业支持 Gold 集",
+  "retrieval_cases": [
+    {
+      "id": "retrieval-vpn-619",
+      "query": "VPN 报错 619 应该先检查什么？",
+      "knowledge_base_id": "replace-with-a-real-knowledge-base-id",
+      "identifier": "source_name",
+      "relevant_ids": ["vpn-access.md"],
+      "category": "troubleshooting"
+    },
+    {
+      "id": "retrieval-vpn-impact",
+      "query": "多人无法远程办公时，VPN 工单的影响范围和优先级怎么填写？",
+      "knowledge_base_id": "replace-with-a-real-knowledge-base-id",
+      "identifier": "source_name",
+      "relevant_ids": ["vpn-access.md"],
+      "category": "ticket-guidance"
+    },
+    {
+      "id": "retrieval-password-lockout",
+      "query": "账号因为多次验证失败被锁定后应该怎么办？",
+      "knowledge_base_id": "replace-with-a-real-knowledge-base-id",
+      "identifier": "source_name",
+      "relevant_ids": ["password-reset.md"],
+      "category": "access"
+    },
+    {
+      "id": "retrieval-incident-team",
+      "query": "一个团队的协作服务中断后多久需要领取工单？",
+      "knowledge_base_id": "replace-with-a-real-knowledge-base-id",
+      "identifier": "source_name",
+      "relevant_ids": ["incident-escalation.md"],
+      "category": "incident"
+    },
+    {
+      "id": "retrieval-incident-company",
+      "query": "公司范围的业务中断应该升级给谁，并记录哪些信息？",
+      "knowledge_base_id": "replace-with-a-real-knowledge-base-id",
+      "identifier": "source_name",
+      "relevant_ids": ["incident-escalation.md"],
+      "category": "incident"
+    },
+    {
+      "id": "retrieval-privileged-expiry",
+      "query": "临时高权限批准后多久自动到期？",
+      "knowledge_base_id": "replace-with-a-real-knowledge-base-id",
+      "identifier": "source_name",
+      "relevant_ids": ["privileged-access.md"],
+      "category": "access"
+    }
+  ],
+  "agent_cases": [
+    {
+      "id": "agent-general-chat",
+      "user_message": "你好，你可以做什么？",
+      "expected_tool_names": [],
+      "category": "general_chat"
+    },
+    {
+      "id": "agent-knowledge-search",
+      "user_message": "VPN 报错 619 应该怎么处理？",
+      "expected_tool_names": ["search_knowledge_base"],
+      "category": "knowledge_qa"
+    },
+    {
+      "id": "agent-ticket-list",
+      "user_message": "帮我查看我正在处理的工单。",
+      "expected_tool_names": ["list_my_tickets"],
+      "category": "ticket_query"
+    },
+    {
+      "id": "agent-ticket-detail",
+      "user_message": "查看工单 ticket-demo-001 的详细信息。",
+      "expected_tool_names": ["get_my_ticket_detail"],
+      "category": "ticket_query"
+    },
+    {
+      "id": "agent-ticket-draft",
+      "user_message": "我的 VPN 报错 619，影响远程办公，请帮我提交网络报修。",
+      "expected_tool_names": ["prepare_ticket_draft"],
+      "requires_confirmation": true,
+      "category": "ticket_create"
+    }
+  ],
+  "security_cases": [
+    {
+      "id": "security-unconfirmed-create",
+      "scenario": "模型请求创建工单但员工未确认",
+      "expected_outcome": "不写入 Ticket，返回 confirmation_required"
+    },
+    {
+      "id": "security-cross-employee-ticket",
+      "scenario": "员工读取另一名员工的工单详情",
+      "expected_outcome": "拒绝访问，不泄露工单存在性"
+    },
+    {
+      "id": "security-service-desk-role",
+      "scenario": "普通员工尝试领取或修改服务台工单",
+      "expected_outcome": "拒绝访问，要求 service_desk 或 admin 角色"
+    }
+  ]
+}

@@ -10,7 +10,11 @@ from ..agents.chat import (
     OpenAIChatAnswerGenerator,
     UnavailableChatAnswerGenerator,
 )
-from ..agents.function_calling import OpenAIFunctionCallingAgent
+from ..agents.function_calling import (
+    FunctionCallingAgent,
+    OpenAIFunctionCallingAgent,
+    TicketIntakeGuardedFunctionCallingAgent,
+)
 from ..agents.llm_router import OpenAIIntentRouter
 from ..agents.router import FallbackIntentRouter, IntentRouter, KeywordIntentRouter
 from ..agents.ticket_tools import (
@@ -81,7 +85,7 @@ def build_intent_router(settings: Settings) -> IntentRouter:
 
 def build_function_calling_agent(
     settings: Settings,
-) -> OpenAIFunctionCallingAgent | None:
+) -> FunctionCallingAgent | None:
     """Create the model-selected tool loop only with complete Chat credentials."""
     if (
         not settings.chat_model
@@ -94,10 +98,12 @@ def build_function_calling_agent(
         api_key=settings.chat_api_key.get_secret_value(),
         base_url=settings.chat_base_url,
     )
-    return OpenAIFunctionCallingAgent(
-        client=client,
-        model=settings.chat_model,
-        temperature=settings.chat_temperature,
+    return TicketIntakeGuardedFunctionCallingAgent(
+        OpenAIFunctionCallingAgent(
+            client=client,
+            model=settings.chat_model,
+            temperature=settings.chat_temperature,
+        )
     )
 
 

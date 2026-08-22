@@ -34,8 +34,19 @@ class KeywordStore(Protocol):
         *,
         knowledge_base_id: str,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[KeywordSearchResult]:
         """Return BM25-ranked candidates scoped to one knowledge base."""
+        ...
+
+    async def update_document_lifecycle(
+        self,
+        *,
+        knowledge_base_id: str,
+        document_id: str,
+        lifecycle: str,
+    ) -> None:
+        """Update governance metadata for every indexed chunk of one document."""
         ...
 
     async def close(self) -> None:

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from openai import AsyncOpenAI
 
+from .ticket_intake import assess_ticket_intake
+
 if TYPE_CHECKING:
     from .state import AgentConversationMessage
 
@@ -215,6 +217,31 @@ class OpenAIFunctionCallingAgent:
         return AgentModelResponse(content=message.content, tool_calls=tool_calls)
 
 
+class TicketIntakeGuardedFunctionCallingAgent:
+    """Prevent a model from inventing missing facts for a ticket draft."""
+
+    def __init__(self, delegate: FunctionCallingAgent) -> None:
+        self.delegate = delegate
+
+    async def complete(
+        self,
+        messages: list[dict[str, object]],
+        *,
+        tool_choice: str = "auto",
+    ) -> AgentModelResponse:
+        assessment = assess_ticket_intake(
+            str(message["content"])
+            for message in messages
+            if message.get("role") == "user" and isinstance(message.get("content"), str)
+        )
+        if assessment.requires_clarification:
+            return AgentModelResponse(
+                content=assessment.clarification_message,
+                tool_calls=[],
+            )
+        return await self.delegate.complete(messages, tool_choice=tool_choice)
+
+
 def build_function_call_messages(
     *,
     user_message: str,
@@ -230,7 +257,11 @@ def build_function_call_messages(
                 "employee requests factual knowledge-base content or ticket data; do "
                 "not invent internal information or ticket status. The server enforces "
                 "employee data scope. For a new ticket, call prepare_ticket_draft only "
-                "after collecting enough information. It creates no data: the employee "
+                "after collecting enough employee-provided information. Before drafting, "
+                "the employee must state a concrete issue, operational context (for example "
+                "an error, time, device, or attempted action), and business impact. Never "
+                "infer those facts or use a function when any of them is missing; ask the "
+                "employee to supplement the report instead. It creates no data: the employee "
                 "must confirm the draft in the application. Never claim a ticket was "
                 "created until the server reports a confirmed result. For ordinary "
                 "conversation, answer directly without a function."

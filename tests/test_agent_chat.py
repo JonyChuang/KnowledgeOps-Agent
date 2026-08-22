@@ -73,4 +73,6 @@ async def test_chat_generator_keeps_knowledge_answers_grounded_in_citations() ->
     assert request["model"] == "chat-test"
     assert request["temperature"] == 0.2
     assert "只能依据提供的来源回答" in request["messages"][0]["content"]
+    assert "按来源分别说明" in request["messages"][0]["content"]
+    assert "FIELD=value" in request["messages"][0]["content"]
     assert "vpn-guide.md" in request["messages"][1]["content"]

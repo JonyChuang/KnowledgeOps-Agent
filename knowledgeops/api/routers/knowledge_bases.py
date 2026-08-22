@@ -1,14 +1,17 @@
 """REST endpoints for knowledge bases and text documents."""
 
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...graphrag import GraphRetriever, RuleBasedEntityExtractor
+from ...models import DocumentLifecycle, DocumentStatus
 from ...rag import parse_uploaded_document
 from ...schemas import (
     DocumentIndexTaskRead,
+    DocumentLifecycleUpdate,
     DocumentRead,
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
@@ -24,7 +27,12 @@ from ...services import (
     ResourceNotFoundError,
 )
 from ...services.web_import import WebImportError, import_web_page
-from ...tasks import build_hybrid_retriever, enqueue_document_index
+from ...tasks import (
+    build_elasticsearch_keyword_store,
+    build_hybrid_retriever,
+    build_qdrant_vector_store,
+    enqueue_document_index,
+)
 from ...tasks.indexing import build_neo4j_graph_store
 from ..dependencies import get_actor, get_session
 
@@ -120,6 +128,7 @@ async def upload_local_file_document(
     knowledge_base_id: str,
     request: Request,
     source_name: str = Query(min_length=1, max_length=255),
+    lifecycle: Annotated[DocumentLifecycle, Query()] = DocumentLifecycle.ACTIVE,
     session: AsyncSession = Depends(get_session),
     actor: str = Depends(get_actor),
 ) -> DocumentRead:
@@ -136,6 +145,7 @@ async def upload_local_file_document(
             source_name=parsed.source_name,
             source_type=parsed.source_type,
             content=parsed.text,
+            lifecycle=lifecycle,
         )
         return await KnowledgeService(session).upload_text_document(
             knowledge_base_id,
@@ -174,6 +184,7 @@ async def import_webpage_document(
             source_name=payload.source_name or parsed.source_name,
             source_type=parsed.source_type,
             content=parsed.text,
+            lifecycle=payload.lifecycle,
         )
         return await KnowledgeService(session).upload_text_document(
             knowledge_base_id,
@@ -261,6 +272,7 @@ async def search_knowledge_base(
                 payload.query,
                 knowledge_base_id=knowledge_base_id,
                 limit=payload.limit,
+                include_archived=payload.include_archived,
             )
         finally:
             await retriever.close()
@@ -295,6 +307,7 @@ async def search_knowledge_base_graph(
                 payload.query,
                 knowledge_base_id=knowledge_base_id,
                 limit=payload.limit,
+                include_archived=payload.include_archived,
             )
             return [
                 GraphSearchResultRead(
@@ -362,3 +375,43 @@ async def trigger_document_index(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(error),
         ) from error
+
+
+@documents_router.patch("/{document_id}/lifecycle", response_model=DocumentRead)
+async def update_document_lifecycle(
+    document_id: str,
+    payload: DocumentLifecycleUpdate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    actor: str = Depends(get_actor),
+) -> DocumentRead:
+    """Change source availability while retaining its audit and index history."""
+    service = KnowledgeService(session)
+    vector_store = None
+    keyword_store = None
+    graph_store = None
+    try:
+        document = await service.get_document(document_id)
+        if document.status is DocumentStatus.READY:
+            settings = request.app.state.settings
+            vector_store = build_qdrant_vector_store(settings)
+            keyword_store = build_elasticsearch_keyword_store(settings)
+            if settings.graph_indexing_enabled:
+                graph_store = build_neo4j_graph_store(settings)
+        return await service.update_document_lifecycle(
+            document_id,
+            payload.lifecycle,
+            actor=actor,
+            vector_store=vector_store,
+            keyword_store=keyword_store,
+            graph_store=graph_store,
+        )
+    except ResourceNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    finally:
+        if vector_store is not None:
+            await vector_store.close()
+        if keyword_store is not None:
+            await keyword_store.close()
+        if graph_store is not None:
+            await graph_store.close()

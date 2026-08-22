@@ -23,6 +23,7 @@ class GraphRetriever:
         *,
         knowledge_base_id: str,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[GraphChunk]:
         """Return graph-related chunks for entities recognized in a query."""
         if not query.strip():
@@ -40,4 +41,5 @@ class GraphRetriever:
             knowledge_base_id=knowledge_base_id,
             entity_keys=[entity.key for entity in entities],
             limit=limit,
+            include_archived=include_archived,
         )

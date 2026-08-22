@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Qdrant stores vectors while PostgreSQL or SQLite stores business records.
     qdrant_url: str = "http://localhost:6333"
 
+    # Local Qdrant should not inherit a terminal SOCKS/HTTP proxy. Enable this
+    # explicitly only when a remote Qdrant deployment requires that proxy.
+    qdrant_trust_env: bool = False
+
     # SecretStr prevents the API Key from appearing in Settings logs or repr output.
     qdrant_api_key: SecretStr | None = None
 
@@ -34,6 +38,10 @@ class Settings(BaseSettings):
     elasticsearch_url: str = "http://localhost:9200"
     elasticsearch_api_key: SecretStr | None = None
     elasticsearch_index: str = "knowledgeops_chunks"
+
+    # Recall a wider generic pool before selecting final, source-diverse evidence.
+    hybrid_candidate_limit: int = 20
+    hybrid_max_chunks_per_document: int = 2
 
     embedding_dimensions: int = 512
     # Keep the embedding model configurable across local and deployed environments.
@@ -46,6 +54,11 @@ class Settings(BaseSettings):
     # Chat 和 Embedding 可以使用不同服务商、地址和密钥。
     chat_base_url: str | None = None
     chat_api_key: SecretStr | None = None
+    # Optional independent model for evaluation-only answer verification. It is
+    # intentionally separate from CHAT_* so reports can disclose self-review.
+    verifier_model: str | None = None
+    verifier_base_url: str | None = None
+    verifier_api_key: SecretStr | None = None
     embedding_base_url: str | None = None
     embedding_api_key: SecretStr | None = None
 

@@ -20,6 +20,7 @@ class RetrievedChunk:
     start_char: int
     end_char: int
     text: str
+    lifecycle: str = "active"
 
 
 class SemanticRetriever:
@@ -40,6 +41,7 @@ class SemanticRetriever:
         *,
         knowledge_base_id: str,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[VectorSearchResult]:
         """Return validated low-level vector results for hybrid retrieval."""
         clean_query = query.strip()
@@ -57,6 +59,7 @@ class SemanticRetriever:
             vectors[0],
             limit=limit,
             knowledge_base_id=knowledge_base_id,
+            include_archived=include_archived,
         )
 
     async def retrieve(
@@ -65,12 +68,14 @@ class SemanticRetriever:
         *,
         knowledge_base_id: str,
         limit: int = 5,
+        include_archived: bool = False,
     ) -> list[RetrievedChunk]:
         """Return ranked, citable chunks for one non-empty user question."""
         vector_results = await self.retrieve_vector_results(
             query,
             knowledge_base_id=knowledge_base_id,
             limit=limit,
+            include_archived=include_archived,
         )
 
         # Convert low-level Qdrant payloads into an explicit citation contract.
@@ -116,4 +121,5 @@ class SemanticRetriever:
             start_char=int(payload["start_char"]),
             end_char=int(payload["end_char"]),
             text=str(payload["text"]),
+            lifecycle=str(payload.get("document_lifecycle", "active")),
         )

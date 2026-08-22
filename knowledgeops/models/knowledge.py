@@ -21,6 +21,14 @@ class DocumentStatus(str, Enum):
     FAILED = "failed"
 
 
+class DocumentLifecycle(str, Enum):
+    """Business availability of a source, independent from index processing."""
+
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
 class KnowledgeBase(TimestampMixin, Base):
     """A department-scoped collection of source documents."""
 
@@ -65,6 +73,17 @@ class Document(TimestampMixin, Base):
             values_callable=lambda enum_class: [item.value for item in enum_class],
         ),
         default=DocumentStatus.UPLOADED,
+        nullable=False,
+        index=True,
+    )
+    lifecycle: Mapped[DocumentLifecycle] = mapped_column(
+        SqlEnum(
+            DocumentLifecycle,
+            name="document_lifecycle",
+            native_enum=False,
+            values_callable=lambda enum_class: [item.value for item in enum_class],
+        ),
+        default=DocumentLifecycle.ACTIVE,
         nullable=False,
         index=True,
     )
